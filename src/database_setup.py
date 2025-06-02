@@ -3,6 +3,7 @@ Database setup script for BJJ attendance tracking system.
 """
 import sqlite3
 import os
+import sys
 
 # Define the database file path relative to the project root
 # Assuming this script might be run from project root or src/
@@ -11,8 +12,17 @@ import os
 # Let's make it robust by always finding the project root relative to this file's location.
 CURRENT_SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 PROJECT_ROOT = os.path.abspath(os.path.join(CURRENT_SCRIPT_DIR, '..'))
-DB_NAME = "bjj_attendance.db"
+DB_NAME = os.environ.get('DB_NAME', "bjj_attendance.db")
 DB_FILE = os.path.join(PROJECT_ROOT, DB_NAME)
+
+# Print diagnostics
+print(f"Database setup script running in: {os.getcwd()}")
+print(f"Script directory: {CURRENT_SCRIPT_DIR}")
+print(f"Project root: {PROJECT_ROOT}")
+print(f"Database name: {DB_NAME}")
+print(f"Database file path: {DB_FILE}")
+print(f"Directory exists? {os.path.exists(PROJECT_ROOT)}")
+print(f"Directory writeable? {os.access(PROJECT_ROOT, os.W_OK)}")
 
 def create_connection(db_file_path):
     """ Create a database connection to the SQLite database specified by db_file_path """
@@ -175,32 +185,50 @@ def initialize_database():
         os.makedirs(db_dir, exist_ok=True)
         print(f"Created directory for database: {db_dir}")
 
-    conn = create_connection(DB_FILE)
-    if conn is not None:
-        create_tables(conn)
-        conn.close()
-        print("Database initialization process complete.")
-    else:
-        print("Failed to create database connection. Tables not created.")
+    # Test if we can write to the location
+    try:
+        # Create a test file to verify write permissions
+        test_file = os.path.join(PROJECT_ROOT, ".db_test_file")
+        with open(test_file, 'w') as f:
+            f.write("test")
+        os.remove(test_file)
+        print(f"Verified write permission to {PROJECT_ROOT}")
+    except Exception as e:
+        print(f"WARNING: Write permission test failed: {e}")
+        print("Will attempt to create database anyway...")
+
+    try:
+        conn = create_connection(DB_FILE)
+        if conn is not None:
+            create_tables(conn)
+            conn.close()
+            print("Database initialization process complete.")
+            return True
+        else:
+            print("Failed to create database connection. Tables not created.")
+            return False
+    except Exception as e:
+        print(f"Error during database initialization: {e}")
+        return False
 
 def main():
     """ Main function to set up the database """
     try:
-        conn = create_connection(DB_FILE)
-        if conn:
-            create_tables(conn)
-            conn.close()
-            print("Database setup completed successfully")
+        success = initialize_database()
+        # Example: You can add a check here to see if the DB file was created
+        if os.path.exists(DB_FILE):
+            print(f"Database file '{DB_NAME}' is present at '{PROJECT_ROOT}'.")
+            print(f"File size: {os.path.getsize(DB_FILE)} bytes")
+            print(f"File permissions: {oct(os.stat(DB_FILE).st_mode)}")
+            return 0
+        else:
+            print(f"Database file '{DB_NAME}' was NOT created at '{PROJECT_ROOT}'. Check permissions or errors.")
+            return 1
     except Exception as e:
         print(f"Database setup failed: {e}")
-        raise e
+        return 1
 
 if __name__ == '__main__':
     print("Running Database Setup...")
-    initialize_database()
-    # Example: You can add a check here to see if the DB file was created
-    if os.path.exists(DB_FILE):
-        print(f"Database file '{DB_NAME}' is present at '{PROJECT_ROOT}'.")
-    else:
-        print(f"Database file '{DB_NAME}' was NOT created at '{PROJECT_ROOT}'. Check permissions or errors.")
-    main()
+    exit_code = main()
+    sys.exit(exit_code)

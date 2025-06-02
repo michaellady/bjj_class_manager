@@ -23,6 +23,12 @@ jobs:
         sudo apt-get clean
         df -h
     
+    - name: Install jq for JSON parsing
+      run: sudo apt-get update && sudo apt-get install -y jq
+    
+    - name: Create Docker network
+      run: docker network create app-network
+    
     - name: Build Docker images
       run: |
         docker build -t class-pictures-app:${{ github.sha }} .
@@ -34,7 +40,9 @@ jobs:
         docker images
         
         # Run the container with debug output enabled
-        docker run -d --name app-container -p 5001:5001 \
+        docker run -d --name app-container \
+          --network app-network \
+          -p 5001:5001 \
           -e FLASK_DEBUG=1 \
           -e LOG_LEVEL=DEBUG \
           -e REQUESTS_TIMEOUT=300 \
@@ -61,9 +69,8 @@ jobs:
         echo "Checking if app is responding..."
         max_attempts=120
         for i in $(seq 1 $max_attempts); do
-          if curl -s http://localhost:5001/health > /dev/null; then
+          if curl -s http://localhost:5001/health; then
             echo "App is responding!"
-            curl -s http://localhost:5001/health | jq || echo "Could not parse health response with jq"
             break
           fi
           if [ $i -eq $max_attempts ]; then
@@ -75,14 +82,26 @@ jobs:
           sleep 2
         done
     
+    - name: Show Docker network info
+      run: |
+        echo "Docker network info:"
+        docker network inspect app-network
+        
+        echo "Container network settings:"
+        docker inspect --format='{{json .NetworkSettings}}' app-container | jq
+    
     - name: Run tests in test container
       run: |
         echo "Setting up test container..."
         
-        # Run the test container with network access to app container
+        # Get the app container's IP address
+        APP_IP=$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' app-container)
+        echo "App container IP: $APP_IP"
+        
+        # Run the test container with access to app container via Docker network
         docker run --name test-container \
-          --network host \
-          -e BASE_URL=http://localhost:5001 \
+          --network app-network \
+          -e BASE_URL=http://app-container:5001 \
           -e TEST_TIMEOUT=300 \
           -e DEBUG=1 \
           class-pictures-test:${{ github.sha }}

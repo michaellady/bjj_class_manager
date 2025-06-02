@@ -40,8 +40,11 @@ RUN mkdir -p pictures/incoming \
 ENV PYTHONPATH=/app
 ENV FLASK_APP=src.app
 ENV FLASK_DEBUG=1
-ENV REQUESTS_TIMEOUT=180
-ENV INSTAGRAM_TIMEOUT=120
+ENV REQUESTS_TIMEOUT=300
+ENV INSTAGRAM_TIMEOUT=180
+
+# Make the database directory writable
+RUN chmod -R 777 .
 
 # Expose port
 EXPOSE 5001
@@ -52,7 +55,13 @@ echo "Testing network connectivity..."\n\
 ping -c 3 instagram.com || echo "Warning: Cannot ping Instagram (expected in containers)"\n\
 curl -I https://www.instagram.com || echo "Warning: Cannot connect to Instagram (may be rate limited)"\n\
 echo "Initializing database..."\n\
-python -c "from src.database_setup import initialize_database; initialize_database()"\n\
+python -m src.database_setup\n\
+if [ $? -ne 0 ]; then\n\
+    echo "Database initialization failed!"\n\
+    exit 1\n\
+fi\n\
+echo "Checking database..."\n\
+ls -la *.db || echo "No .db files found in root directory"\n\
 echo "Starting Flask application with extended timeouts..."\n\
 python -m flask run --host=0.0.0.0 --port=5001\n\
 ' > /app/start.sh && chmod +x /app/start.sh

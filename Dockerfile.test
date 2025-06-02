@@ -14,6 +14,7 @@ RUN apt-get update && apt-get install -y \
     curl \
     net-tools \
     iputils-ping \
+    jq \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy requirements first to leverage Docker cache
@@ -54,7 +55,16 @@ echo "Testing network connectivity..."\n\
 echo "Testing connectivity to Instagram..."\n\
 curl -I https://www.instagram.com || echo "Warning: Cannot curl Instagram (may be rate limited)"\n\
 echo "Testing connectivity to app server..."\n\
-curl -I $BASE_URL/health || echo "Warning: Cannot connect to app server"\n\
+echo "Checking if app container is reachable:"\n\
+curl -v $BASE_URL/health\n\
+echo "Health check response content:"\n\
+curl -s $BASE_URL/health\n\
+echo "Testing network routes:"\n\
+ip route\n\
+echo "Testing DNS resolution:"\n\
+getent hosts host.docker.internal app-container localhost || echo "Cannot resolve hosts"\n\
+echo "Network interfaces:"\n\
+ip addr\n\
 echo "Running tests with extended diagnostics..."\n\
 echo "These tests will use actual Instagram URLs to test the real user experience."\n\
 python -m unittest discover -v -s src -p "test_*.py"\n\

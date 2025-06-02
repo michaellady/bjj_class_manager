@@ -51,9 +51,12 @@ class TestEndToEnd(unittest.TestCase):
         logger.info(f"Working directory: {os.getcwd()}")
         logger.info(f"Test timeout: {os.environ.get('TEST_TIMEOUT', '120')} seconds")
         logger.info(f"Debug mode: {os.environ.get('DEBUG', '0')}")
+        logger.info(f"Base URL: {cls.base_url}")
         
         # Wait for the Flask app to be available
-        cls._wait_for_flask_app()
+        if not cls._wait_for_flask_app():
+            logger.error("Flask app is not available, skipping tests")
+            sys.exit(1)
     
     @classmethod
     def _wait_for_flask_app(cls):
@@ -64,15 +67,34 @@ class TestEndToEnd(unittest.TestCase):
                 logger.info(f"Checking if Flask app is available (attempt {attempt+1}/{max_attempts})...")
                 # Add timeout parameter to avoid hanging indefinitely
                 response = cls.session.get(f"{cls.base_url}/health", timeout=5)
+                
+                # Log the response status and content regardless
+                logger.info(f"Health check status code: {response.status_code}")
+                try:
+                    content = response.text
+                    logger.info(f"Health check response content: {content[:200]}...")
+                    
+                    # Try to parse as JSON
+                    try:
+                        json_data = response.json()
+                        logger.info(f"Health check JSON data: {json.dumps(json_data, indent=2)}")
+                    except:
+                        logger.warning("Health check response is not valid JSON")
+                        
+                except Exception as e:
+                    logger.warning(f"Could not get response content: {e}")
+                
                 if response.status_code == 200:
                     logger.info("Flask app is available!")
-                    # Log health check response
-                    try:
-                        health_data = response.json()
-                        logger.info(f"Health check data: {json.dumps(health_data, indent=2)}")
-                    except:
-                        logger.warning("Could not parse health check response as JSON")
                     return True
+                elif response.status_code == 500:
+                    logger.error("Health check returned 500 Internal Server Error")
+                    logger.error("This suggests the app container is running but has an error")
+                    # Continue retrying - it might resolve
+                
+            except requests.exceptions.ConnectionError as e:
+                logger.info(f"Connection error to Flask app: {e}")
+                logger.info("This suggests the app container is not yet reachable")
             except requests.exceptions.RequestException as e:
                 logger.info(f"Flask app not yet available: {e}")
             
