@@ -5,11 +5,12 @@ WORKDIR /app
 # Install system dependencies
 RUN apt-get update && apt-get install -y \
     libsqlite3-dev \
-    libgl1-mesa-glx \
+    libgl1 \
     libglib2.0-0 \
     libsm6 \
     libxext6 \
-    libxrender-dev \
+    libxrender1 \
+    ffmpeg \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy requirements first to leverage Docker cache
@@ -34,17 +35,8 @@ RUN mkdir -p pictures/incoming \
 ENV DB_NAME=test_bjj_attendance.db
 ENV PYTHONPATH=/app
 
-# Create a script to initialize the database and run tests
-RUN echo '#!/bin/bash\n\
-echo "Initializing test database..."\n\
-python init_test_db.py\n\
-if [ $? -ne 0 ]; then\n\
-  echo "Database initialization failed!"\n\
-  exit 1\n\
-fi\n\
-echo "Running tests..."\n\
-python -m unittest src/test_end_to_end.py -v\n\
-' > /app/run_tests.sh && chmod +x /app/run_tests.sh
+# Initialize the test database
+RUN python init_test_db.py
 
-# Run the test script
-CMD ["/app/run_tests.sh"] 
+# Command to run tests
+CMD ["python", "-m", "unittest", "discover", "-s", "src", "-p", "test_*.py"] 
