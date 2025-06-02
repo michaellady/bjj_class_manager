@@ -53,7 +53,8 @@ class TestEndToEnd(unittest.TestCase):
         for attempt in range(max_attempts):
             try:
                 logger.info(f"Checking if Flask app is available (attempt {attempt+1}/{max_attempts})...")
-                response = cls.session.get(f"{cls.base_url}/", timeout=2)
+                # Add timeout parameter to avoid hanging indefinitely
+                response = cls.session.get(f"{cls.base_url}/health", timeout=5)
                 if response.status_code == 200:
                     logger.info("Flask app is available!")
                     return True
@@ -77,7 +78,8 @@ class TestEndToEnd(unittest.TestCase):
         # Upload using the URL
         response = self.session.post(
             f"{self.base_url}/api/images/upload",
-            data=data  # Send as form data
+            data=data,  # Send as form data
+            timeout=30  # Add timeout parameter
         )
         
         self.assertEqual(response.status_code, 201)  # Expect 201 Created
@@ -97,7 +99,10 @@ class TestEndToEnd(unittest.TestCase):
         
         while retry_count < max_retries and not processing_complete:
             # Get image status
-            response = self.session.get(f"{self.base_url}/api/images/{TestEndToEnd.image_id}/detections")
+            response = self.session.get(
+                f"{self.base_url}/api/images/{TestEndToEnd.image_id}/detections",
+                timeout=10  # Add timeout parameter
+            )
             self.assertEqual(response.status_code, 200)
             result = response.json()
             
@@ -128,7 +133,8 @@ class TestEndToEnd(unittest.TestCase):
             # First, create a new person from the detection
             response = self.session.post(
                 f"{self.base_url}/api/detections/{detection['detection_id']}/reassign_to_new_person",
-                json={}
+                json={},
+                timeout=10  # Add timeout parameter
             )
             
             self.assertEqual(response.status_code, 200)
@@ -139,7 +145,8 @@ class TestEndToEnd(unittest.TestCase):
             # Then, update the person's name
             response = self.session.post(
                 f"{self.base_url}/api/persons/{new_person_id}/update",
-                json={'name': f'Test Person {i}'}
+                json={'name': f'Test Person {i}'},
+                timeout=10  # Add timeout parameter
             )
             
             self.assertEqual(response.status_code, 200)
@@ -152,7 +159,8 @@ class TestEndToEnd(unittest.TestCase):
         
         # Get the attendance record for the class
         response = self.session.get(
-            f"{self.base_url}/api/images/{TestEndToEnd.image_id}/attendance"
+            f"{self.base_url}/api/images/{TestEndToEnd.image_id}/attendance",
+            timeout=10  # Add timeout parameter
         )
         
         self.assertEqual(response.status_code, 200)

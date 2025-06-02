@@ -47,20 +47,66 @@ jobs:
       run: |
         python -c "from src.database_setup import initialize_database; initialize_database()"
     
-    - name: Start Flask app in background
+    - name: Start Flask app in background with detailed logging
       env:
         PYTHONPATH: ${{ github.workspace }}
         FLASK_APP: src.app
+        FLASK_DEBUG: 1
       run: |
-        nohup python -m flask run --host=0.0.0.0 --port=5001 > flask.log 2>&1 &
-        echo "Waiting for Flask app to start..."
-        sleep 10
-        curl -s http://localhost:5001/ || echo "Flask app may not be ready yet, but continuing..."
-        cat flask.log
+        # Create templates directory if it doesn't exist to avoid template errors
+        mkdir -p src/templates
+        # Create a simple index.html template for testing
+        echo '<html><body><h1>BJJ Attendance System</h1><p>This is a test page.</p></body></html>' > src/templates/index.html
+        
+        # Redirect both stdout and stderr to log file for better debugging
+        python -m flask run --host=0.0.0.0 --port=5001 > flask.log 2>&1 &
+        # Save the PID so we can check on it later
+        echo $! > flask.pid
+        echo "Flask app started with PID $(cat flask.pid)"
+        # Give it a moment to start
+        sleep 5
+        # Check if process is still running
+        if ps -p $(cat flask.pid) > /dev/null; then
+          echo "Flask process is running"
+        else
+          echo "Flask process died. Here's the log:"
+          cat flask.log
+          exit 1
+        fi
+        # Try to connect to make sure it's responding
+        curl -v http://localhost:5001/health || echo "Flask app may not be ready yet, but process is running"
+        # Show the last 50 lines of logs
+        echo "Last 50 lines of Flask logs:"
+        tail -n 50 flask.log
+    
+    - name: Wait for Flask app to be fully ready
+      run: |
+        # Try for up to 30 seconds
+        for i in {1..30}; do
+          if curl -s http://localhost:5001/health > /dev/null; then
+            echo "Flask app is ready!"
+            break
+          fi
+          echo "Waiting for Flask app to be ready (attempt $i/30)..."
+          sleep 1
+          # Check if process is still alive
+          if ! ps -p $(cat flask.pid) > /dev/null; then
+            echo "Flask process died during wait. Here's the log:"
+            cat flask.log
+            exit 1
+          fi
+        done
+        # Final check
+        if ! curl -s http://localhost:5001/health > /dev/null; then
+          echo "Flask app failed to start properly after 30 attempts. Here's the log:"
+          cat flask.log
+          exit 1
+        fi
     
     - name: Run tests
       env:
         PYTHONPATH: ${{ github.workspace }}
+        BASE_URL: http://localhost:5001
       run: |
         python -m unittest discover -s src -p "test_*.py"
     
