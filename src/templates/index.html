@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>BJJ Class Attendance Tracker</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body>
+    <header>
+        <h1>BJJ Class Attendance Tracker</h1>
+    </header>
+
+    <main>
+        <section id="image-upload-section">
+            <h2>Upload New Class Picture(s)</h2>
+            <form id="upload-form">
+                <div>
+                    <label for="image-files-input">Upload from computer:</label>
+                    <input type="file" id="image-files-input" name="file" accept="image/png, image/jpeg, image/jpg">
+                </div>
+                <div style="margin-top: 10px; margin-bottom: 10px;">OR</div>
+                <div>
+                    <label for="image-url-input">Upload from direct image URL:</label>
+                    <input type="url" id="image-url-input" name="image_url" placeholder="https://example.com/image.jpg" style="width: 300px;">
+                </div>
+                <!-- Could add a date input if not relying on EXIF/mtime -->
+                <!-- <input type="date" id="image-date-input" name="image_date"> -->
+                <button type="submit" style="margin-top: 10px;">Upload & Process</button>
+            </form>
+            <p><small>Note: Provide either a file or a direct image URL.</small></p>
+            <div id="upload-status"></div>
+        </section>
+
+        <hr>
+
+        <section id="dashboard-overview">
+            <h2>Dashboard</h2>
+            <!-- Overall stats will go here later -->
+        </section>
+        
+        <hr>
+        
+        <section id="persons-list-section">
+            <h2>Students (Persons)</h2>
+            <div id="persons-list-controls">
+                <button id="load-persons-btn">Load Students</button>
+                <button id="start-manual-merge-btn">Start Manual Merge</button>
+                <button id="confirm-manual-merge-btn" style="display:none; background-color: #28a745;">Merge Selected Students</button>
+                <button id="cancel-manual-merge-btn" style="display:none; background-color: #ffc107;">Cancel Merge Mode</button>
+            </div>
+            <div id="persons-list-container" class="gallery-container">
+                <!-- Person cards will be loaded here -->
+            </div>
+            <div id="manual-merge-selection-area" style="display:none; margin-top: 20px; padding:15px; border: 1px solid #ccc;">
+                <h3>Selected for Manual Merge:</h3>
+                <div id="manual-merge-candidate-cards" class="gallery-container" style="grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));">
+                    <!-- Selected person cards for merge will be shown here -->
+                </div>
+                <div id="manual-merge-canonical-selection" style="margin-top:10px;">
+                    <p>Select the student ID to keep (canonical):</p>
+                    <!-- Radio buttons for canonical ID selection -->
+                </div>
+                <button id="execute-manual-merge-btn" style="background-color: #007bff; color:white; padding: 8px 15px; margin-top:10px;" disabled>Confirm & Execute Merge</button>
+            </div>
+        </section>
+
+        <hr>
+
+        <section id="class-images-section">
+            <h2>Processed Class Images</h2>
+            <button id="load-class-images-btn">Load Class Images</button>
+            <div id="class-images-container">
+                <!-- Class image entries will be listed here -->
+            </div>
+        </section>
+
+        <hr>
+
+        <section id="student-detail-section" style="display:none;">
+            <h2>Student Details & Attendance</h2>
+            <button id="back-to-dashboard-from-student-btn">&laquo; Back to Dashboard</button>
+            <div id="student-detail-info" style="margin-bottom: 20px; padding: 10px; border: 1px solid #eee;">
+                <!-- Student's rep image, name, ID, stats will go here -->
+                <img id="student-detail-rep-image" src="" alt="Representative Image" style="max-width: 150px; height: auto; border: 1px solid #ddd; margin-bottom:10px;">
+                <h3 id="student-detail-name"></h3>
+                <p id="student-detail-id"></p>
+                <p id="student-detail-enrollment"></p>
+                <p id="student-detail-attendance-summary"></p>
+            </div>
+            <h3>Attendance Record (Detected In Classes):</h3>
+            <div id="student-attendance-gallery" class="gallery-container" style="grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));">
+                <!-- Thumbnails/links to class images where student was present -->
+            </div>
+        </section>
+
+        <hr>
+        
+        <section id="image-detail-section" style="display:none;">
+            <h2>Image Details & Detections Verification</h2>
+            <button id="back-to-dashboard-btn">&laquo; Back to Dashboard</button>
+            <div id="image-detail-content">
+                <div id="main-image-container">
+                    <h3 id="image-detail-filename"></h3>
+                    <button id="delete-current-image-btn" style="background-color: #dc3545; color: white; border: none; padding: 5px 10px; cursor: pointer; margin-bottom: 10px;">Delete This Image</button>
+                    <img id="main-class-image" src="" alt="Selected Class Image" style="max-width: 100%; height: auto;"/>
+                </div>
+                <h3>Detections:</h3>
+                <div id="detections-grid" class="gallery-container" style="grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));">
+                    <!-- Detection cards will be populated here -->
+                </div>
+            </div>
+        </section>
+        
+        <hr>
+        
+        <section id="merge-tool-section" style="display: none;"> <!-- Hidden for now -->
+            <h2>Identity Management (Merge Tool)</h2>
+            <button id="suggest-merges-btn">Suggest Merges</button>
+            <div id="merge-preview-area" style="display:none;">
+                <h3>Merge Candidates</h3>
+                <div id="candidate-cards" class="gallery-container"></div>
+                <div id="merge-actions">
+                    <p>Select canonical ID:</p>
+                    <div id="canonical-selection"></div>
+                    <button id="confirm-merge-btn" disabled>Confirm Merge</button>
+                    <button id="skip-suggestion-btn">Skip Suggestion</button>
+                    <button id="cancel-merge-btn">Cancel</button>
+                </div>
+            </div>
+        </section>
+
+    </main>
+
+    <footer>
+        <p>&copy; 2025 BJJ Attendance Tracker</p>
+    </footer>
+
+    <script src="{{ url_for('static', filename='js/app.js') }}"></script>
+</body>
+</html>

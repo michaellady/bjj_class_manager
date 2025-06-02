@@ -1,0 +1,131 @@
+body {
+    font-family: sans-serif;
+    margin: 0;
+    background-color: #f4f4f4;
+    color: #333;
+    line-height: 1.6;
+}
+
+header {
+    background: #333;
+    color: #fff;
+    padding: 1rem 0;
+    text-align: center;
+}
+
+header h1 {
+    margin: 0;
+}
+
+main {
+    padding: 1rem;
+    max-width: 1200px;
+    margin: auto;
+    overflow: hidden;
+}
+
+section {
+    background: #fff;
+    padding: 1.5rem;
+    margin-bottom: 1rem;
+    border-radius: 5px;
+    box-shadow: 0 0 10px rgba(0,0,0,0.1);
+}
+
+h2 {
+    color: #333;
+    margin-top: 0;
+}
+
+.gallery-container {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+    gap: 1rem;
+    margin-top: 1rem;
+}
+
+.person-card, .candidate-card {
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    padding: 0.5rem;
+    text-align: center;
+    background-color: #f9f9f9;
+    cursor: pointer; /* For manual selection */
+    transition: transform 0.2s ease-in-out, box-shadow 0.2s ease-in-out;
+}
+
+.person-card:hover, .candidate-card:hover {
+    transform: translateY(-3px);
+    box-shadow: 0 4px 8px rgba(0,0,0,0.15);
+}
+
+.person-card img, .candidate-card img {
+    max-width: 100%;
+    height: auto;
+    border-radius: 3px;
+    margin-bottom: 0.5rem;
+    background-color: #eee; /* Placeholder bg if image is missing */
+    min-height: 100px; /* Ensure some height even if image fails to load */
+}
+
+.person-card p, .candidate-card p {
+    font-size: 0.8rem;
+    margin: 0.2rem 0;
+    word-wrap: break-word;
+}
+
+.person-card .person-id, .candidate-card .person-id {
+    font-weight: bold;
+    font-size: 0.7rem;
+    color: #555;
+}
+
+/* Styles for selected cards (e.g., for manual merge selection) */
+.person-card.selected {
+    border-color: #007bff;
+    box-shadow: 0 0 0 0.2rem rgba(0,123,255,.25);
+}
+
+
+#gallery-controls, #merge-actions {
+    margin-bottom: 1rem;
+    padding-bottom: 1rem;
+    border-bottom: 1px solid #eee;
+}
+
+#gallery-controls button, #merge-actions button {
+    padding: 0.5rem 1rem;
+    background-color: #007bff;
+    color: white;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    margin-right: 0.5rem;
+    font-size: 0.9rem;
+}
+
+#gallery-controls button:hover, #merge-actions button:hover {
+    background-color: #0056b3;
+}
+
+#merge-actions button:disabled {
+    background-color: #ccc;
+    cursor: not-allowed;
+}
+
+#canonical-selection label {
+    display: block;
+    margin-bottom: 0.5rem;
+}
+
+#canonical-selection input[type="radio"] {
+    margin-right: 0.5rem;
+}
+
+footer {
+    text-align: center;
+    padding: 1rem;
+    background: #333;
+    color: #fff;
+    margin-top: 2rem;
+}
