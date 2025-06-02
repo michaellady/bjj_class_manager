@@ -30,11 +30,20 @@ jobs:
     
     - name: Run app container in background
       run: |
+        # Show Docker images
+        docker images
+        
+        # Run the container
         docker run -d --name app-container -p 5001:5001 class-pictures-app:${{ github.sha }}
         
         # Wait for the container to start
         echo "Waiting for app container to start..."
-        sleep 10
+        sleep 15
+        
+        # Check if container is running and show logs
+        docker ps -a
+        echo "App container logs:"
+        docker logs app-container
         
         # Check if container is running
         if [ "$(docker inspect -f '{{.State.Running}}' app-container)" != "true" ]; then
@@ -45,7 +54,7 @@ jobs:
         
         # Check if app is responding
         echo "Checking if app is responding..."
-        max_attempts=30
+        max_attempts=60
         for i in $(seq 1 $max_attempts); do
           if curl -s http://localhost:5001/health > /dev/null; then
             echo "App is responding!"
@@ -57,7 +66,7 @@ jobs:
             exit 1
           fi
           echo "Waiting for app to respond (attempt $i/$max_attempts)..."
-          sleep 1
+          sleep 2
         done
     
     - name: Run tests in test container

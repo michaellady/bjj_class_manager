@@ -33,9 +33,11 @@ RUN mkdir -p pictures/incoming \
     data/representative_features \
     data/representative_persons
 
-# Set environment variable for test database
-ENV DB_NAME=test_bjj_attendance.db
+# Set environment variables
 ENV PYTHONPATH=/app
+ENV DB_NAME=test_bjj_attendance.db
+ENV FLASK_APP=src.app
+ENV FLASK_DEBUG=1
 
 # Initialize the test database
 RUN python init_test_db.py

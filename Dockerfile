@@ -34,12 +34,21 @@ RUN mkdir -p pictures/incoming \
     data/representative_features \
     data/representative_persons
 
+# Set environment variables
+ENV PYTHONPATH=/app
+ENV FLASK_APP=src.app
+ENV FLASK_DEBUG=1
+
 # Expose port
 EXPOSE 5001
 
 # Create a startup script to initialize the database and start the app
-RUN echo '#!/bin/bash\npython -c "from src.database_setup import initialize_database; initialize_database()"\npython -m flask run --host=0.0.0.0 --port=5001' > /app/start.sh && chmod +x /app/start.sh
+RUN echo '#!/bin/bash\n\
+echo "Initializing database..."\n\
+python -c "from src.database_setup import initialize_database; initialize_database()"\n\
+echo "Starting Flask application..."\n\
+python -m flask run --host=0.0.0.0 --port=5001\n\
+' > /app/start.sh && chmod +x /app/start.sh
 
 # Run the application
-ENV PYTHONPATH=/app
 CMD ["/app/start.sh"] 
