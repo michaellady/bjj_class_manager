@@ -8,10 +8,19 @@ on:
 
 jobs:
   build-and-test:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-latest-16-cores
     
     steps:
     - uses: actions/checkout@v3
+    
+    - name: Free disk space
+      run: |
+        sudo rm -rf /usr/share/dotnet
+        sudo rm -rf /opt/ghc
+        sudo rm -rf /usr/local/share/boost
+        sudo rm -rf "$AGENT_TOOLSDIRECTORY"
+        sudo apt-get clean
+        df -h
     
     - name: Set up Python
       uses: actions/setup-python@v4
@@ -28,7 +37,11 @@ jobs:
       run: |
         python -m pip install --upgrade pip
         pip install gdown tensorboard
-        pip install -r requirements.txt
+        # Install packages in smaller batches to avoid disk space issues
+        grep -v "torch\|torchvision\|ultralytics\|opencv" requirements.txt > requirements_small.txt || true
+        pip install --no-cache-dir -r requirements_small.txt
+        pip install --no-cache-dir torch torchvision opencv-python-headless
+        pip install --no-cache-dir ultralytics
     
     - name: Initialize database
       run: |
@@ -51,10 +64,102 @@ jobs:
       run: |
         python -m unittest discover -s src -p "test_*.py"
     
+    - name: Optimize Docker builds
+      run: |
+        # Create optimized Dockerfile.ci for CI builds
+        cat > Dockerfile.ci << EOL
+        FROM python:3.13-slim
+        
+        WORKDIR /app
+        
+        # Install system dependencies
+        RUN apt-get update && apt-get install -y \\
+            libsqlite3-dev \\
+            curl \\
+            libgl1 \\
+            libglib2.0-0 \\
+            libsm6 \\
+            libxext6 \\
+            libxrender1 \\
+            ffmpeg \\
+            && rm -rf /var/lib/apt/lists/*
+        
+        # Copy requirements first to leverage Docker cache
+        COPY requirements.txt .
+        
+        # Install dependencies in stages to reduce layer size
+        RUN pip install --no-cache-dir gdown tensorboard && \\
+            pip install --no-cache-dir torch torchvision opencv-python-headless && \\
+            pip install --no-cache-dir -r requirements.txt && \\
+            pip cache purge
+        
+        # Copy application code
+        COPY . .
+        
+        # Create necessary directories
+        RUN mkdir -p pictures/incoming \\
+            data/face_crops \\
+            data/representative_features \\
+            data/representative_persons
+        
+        # Create startup script
+        RUN echo '#!/bin/bash\\npython -c "from src.database_setup import initialize_database; initialize_database()"\\npython -m flask run --host=0.0.0.0 --port=5001' > /app/start.sh && chmod +x /app/start.sh
+        
+        ENV PYTHONPATH=/app
+        EXPOSE 5001
+        CMD ["/app/start.sh"]
+        EOL
+        
+        # Create optimized Dockerfile.test.ci for CI test builds
+        cat > Dockerfile.test.ci << EOL
+        FROM python:3.13-slim
+        
+        WORKDIR /app
+        
+        # Install system dependencies
+        RUN apt-get update && apt-get install -y \\
+            libsqlite3-dev \\
+            libgl1 \\
+            libglib2.0-0 \\
+            libsm6 \\
+            libxext6 \\
+            libxrender1 \\
+            ffmpeg \\
+            && rm -rf /var/lib/apt/lists/*
+        
+        # Copy requirements first to leverage Docker cache
+        COPY requirements.txt .
+        
+        # Install dependencies in stages to reduce layer size
+        RUN pip install --no-cache-dir gdown tensorboard && \\
+            pip install --no-cache-dir torch torchvision opencv-python-headless && \\
+            pip install --no-cache-dir -r requirements.txt && \\
+            pip cache purge
+        
+        # Copy application code
+        COPY . .
+        
+        # Create necessary directories
+        RUN mkdir -p pictures/incoming \\
+            data/face_crops \\
+            data/representative_features \\
+            data/representative_persons
+        
+        # Set environment variable for test database
+        ENV DB_NAME=test_bjj_attendance.db
+        ENV PYTHONPATH=/app
+        
+        # Initialize the test database
+        RUN python init_test_db.py
+        
+        # Command to run tests
+        CMD ["python", "-m", "unittest", "discover", "-s", "src", "-p", "test_*.py"]
+        EOL
+    
     - name: Build Docker images
       run: |
-        docker build -t class-pictures-app:${{ github.sha }} .
-        docker build -t class-pictures-test:${{ github.sha }} -f Dockerfile.test .
+        docker build -t class-pictures-app:${{ github.sha }} -f Dockerfile.ci .
+        docker build -t class-pictures-test:${{ github.sha }} -f Dockerfile.test.ci .
     
     - name: Save Docker images as artifacts
       run: |
