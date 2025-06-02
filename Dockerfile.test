@@ -18,6 +18,8 @@ COPY requirements.txt .
 
 # Install dependencies needed by torchreid
 RUN pip install --no-cache-dir gdown tensorboard
+RUN pip install --no-cache-dir torch torchvision
+RUN pip install --no-cache-dir torchreid
 
 # Install other requirements
 RUN pip install --no-cache-dir -r requirements.txt
