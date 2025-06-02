@@ -50,7 +50,7 @@ jobs:
         docker save class-pictures-test:${{ github.sha }} | gzip > docker-images/class-pictures-test.tar.gz
     
     - name: Upload Docker images as artifacts
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
         name: docker-images
         path: docker-images/
@@ -68,7 +68,7 @@ jobs:
             -czf dist/class-pictures-app.tar.gz .
     
     - name: Upload application package
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
         name: application-package
         path: dist/class-pictures-app.tar.gz
@@ -81,13 +81,13 @@ jobs:
     
     steps:
     - name: Download application package
-      uses: actions/download-artifact@v3
+      uses: actions/download-artifact@v4
       with:
         name: application-package
         path: dist
     
     - name: Download Docker images
-      uses: actions/download-artifact@v3
+      uses: actions/download-artifact@v4
       with:
         name: docker-images
         path: docker-images
