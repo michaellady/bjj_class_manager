@@ -22,7 +22,7 @@ jobs:
     - name: Install system dependencies
       run: |
         sudo apt-get update
-        sudo apt-get install -y libsqlite3-dev libgl1 libglib2.0-0 libsm6 libxext6 libxrender1 ffmpeg libsm6 libxext6 libgl1-mesa-dev
+        sudo apt-get install -y libsqlite3-dev libgl1 libglib2.0-0 libsm6 libxext6 libxrender1 ffmpeg libgl1-mesa-dev
     
     - name: Install Python dependencies
       run: |
@@ -34,7 +34,20 @@ jobs:
       run: |
         python -c "from src.database_setup import initialize_database; initialize_database()"
     
+    - name: Start Flask app in background
+      env:
+        PYTHONPATH: ${{ github.workspace }}
+        FLASK_APP: src.app
+      run: |
+        nohup python -m flask run --host=0.0.0.0 --port=5001 > flask.log 2>&1 &
+        echo "Waiting for Flask app to start..."
+        sleep 10
+        curl -s http://localhost:5001/ || echo "Flask app may not be ready yet, but continuing..."
+        cat flask.log
+    
     - name: Run tests
+      env:
+        PYTHONPATH: ${{ github.workspace }}
       run: |
         python -m unittest discover -s src -p "test_*.py"
     

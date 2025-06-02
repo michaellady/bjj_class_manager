@@ -10,6 +10,8 @@ from datetime import datetime
 import requests
 import json
 import time
+from urllib3.util.retry import Retry
+from requests.adapters import HTTPAdapter
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -29,6 +31,39 @@ class TestEndToEnd(unittest.TestCase):
         # Store test data at class level
         cls.image_id = None
         cls.detections = []
+        
+        # Create a session with retry logic
+        cls.session = requests.Session()
+        retries = Retry(
+            total=10,
+            backoff_factor=0.5,
+            status_forcelist=[500, 502, 503, 504],
+            allowed_methods=["HEAD", "GET", "POST", "PUT", "DELETE", "OPTIONS", "TRACE"]
+        )
+        cls.session.mount('http://', HTTPAdapter(max_retries=retries))
+        cls.session.mount('https://', HTTPAdapter(max_retries=retries))
+        
+        # Wait for the Flask app to be available
+        cls._wait_for_flask_app()
+    
+    @classmethod
+    def _wait_for_flask_app(cls):
+        """Wait for Flask app to be available."""
+        max_attempts = 30
+        for attempt in range(max_attempts):
+            try:
+                logger.info(f"Checking if Flask app is available (attempt {attempt+1}/{max_attempts})...")
+                response = cls.session.get(f"{cls.base_url}/", timeout=2)
+                if response.status_code == 200:
+                    logger.info("Flask app is available!")
+                    return True
+            except requests.exceptions.RequestException as e:
+                logger.info(f"Flask app not yet available: {e}")
+            
+            time.sleep(1)
+        
+        logger.warning(f"Flask app not available after {max_attempts} attempts")
+        return False
 
     def test_01_upload_class_photo(self):
         """Test uploading a class photo from Instagram URL."""
@@ -40,7 +75,7 @@ class TestEndToEnd(unittest.TestCase):
         }
         
         # Upload using the URL
-        response = requests.post(
+        response = self.session.post(
             f"{self.base_url}/api/images/upload",
             data=data  # Send as form data
         )
@@ -62,7 +97,7 @@ class TestEndToEnd(unittest.TestCase):
         
         while retry_count < max_retries and not processing_complete:
             # Get image status
-            response = requests.get(f"{self.base_url}/api/images/{TestEndToEnd.image_id}/detections")
+            response = self.session.get(f"{self.base_url}/api/images/{TestEndToEnd.image_id}/detections")
             self.assertEqual(response.status_code, 200)
             result = response.json()
             
@@ -91,7 +126,7 @@ class TestEndToEnd(unittest.TestCase):
         # Create new persons and assign test names to each detection
         for i, detection in enumerate(TestEndToEnd.detections):
             # First, create a new person from the detection
-            response = requests.post(
+            response = self.session.post(
                 f"{self.base_url}/api/detections/{detection['detection_id']}/reassign_to_new_person",
                 json={}
             )
@@ -102,7 +137,7 @@ class TestEndToEnd(unittest.TestCase):
             new_person_id = result['new_person_id']
             
             # Then, update the person's name
-            response = requests.post(
+            response = self.session.post(
                 f"{self.base_url}/api/persons/{new_person_id}/update",
                 json={'name': f'Test Person {i}'}
             )
@@ -116,7 +151,7 @@ class TestEndToEnd(unittest.TestCase):
         self.assertEqual(len(TestEndToEnd.detections), 18, "Must have exactly 18 detections to verify")
         
         # Get the attendance record for the class
-        response = requests.get(
+        response = self.session.get(
             f"{self.base_url}/api/images/{TestEndToEnd.image_id}/attendance"
         )
         
