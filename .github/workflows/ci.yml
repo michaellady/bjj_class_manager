@@ -33,12 +33,17 @@ jobs:
         # Show Docker images
         docker images
         
-        # Run the container
-        docker run -d --name app-container -p 5001:5001 class-pictures-app:${{ github.sha }}
+        # Run the container with debug output enabled
+        docker run -d --name app-container -p 5001:5001 \
+          -e FLASK_DEBUG=1 \
+          -e LOG_LEVEL=DEBUG \
+          -e REQUESTS_TIMEOUT=300 \
+          -e INSTAGRAM_TIMEOUT=180 \
+          class-pictures-app:${{ github.sha }}
         
         # Wait for the container to start
         echo "Waiting for app container to start..."
-        sleep 15
+        sleep 30
         
         # Check if container is running and show logs
         docker ps -a
@@ -54,10 +59,11 @@ jobs:
         
         # Check if app is responding
         echo "Checking if app is responding..."
-        max_attempts=60
+        max_attempts=120
         for i in $(seq 1 $max_attempts); do
           if curl -s http://localhost:5001/health > /dev/null; then
             echo "App is responding!"
+            curl -s http://localhost:5001/health | jq || echo "Could not parse health response with jq"
             break
           fi
           if [ $i -eq $max_attempts ]; then
@@ -71,17 +77,35 @@ jobs:
     
     - name: Run tests in test container
       run: |
+        echo "Setting up test container..."
+        
         # Run the test container with network access to app container
-        docker run --name test-container --network host -e BASE_URL=http://localhost:5001 class-pictures-test:${{ github.sha }}
+        docker run --name test-container \
+          --network host \
+          -e BASE_URL=http://localhost:5001 \
+          -e TEST_TIMEOUT=300 \
+          -e DEBUG=1 \
+          class-pictures-test:${{ github.sha }}
+        
+        # Capture the exit code
+        TEST_EXIT_CODE=$?
         
         # Show test container logs
         echo "Test container logs:"
         docker logs test-container
         
-        # Check if tests passed
-        if [ $? -ne 0 ]; then
-          echo "Tests failed!"
-          exit 1
+        # Show app container logs after tests ran
+        echo "App container logs after tests:"
+        docker logs app-container
+        
+        # Exit with the same code as the test container
+        if [ $TEST_EXIT_CODE -ne 0 ]; then
+          echo "Tests failed with exit code: $TEST_EXIT_CODE"
+          echo "This could be due to Instagram rate limiting or connectivity issues."
+          echo "Review the logs for more details."
+          exit $TEST_EXIT_CODE
+        else
+          echo "Tests passed successfully!"
         fi
     
     - name: Save Docker images as artifacts

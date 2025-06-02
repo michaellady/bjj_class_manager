@@ -12,6 +12,7 @@ import json
 import re 
 import instaloader # For Instagram scraping
 import sqlite3
+import time  # For measuring request time
 
 # Use relative imports as src is treated as a package
 from . import data_access as da
@@ -25,6 +26,11 @@ REPRESENTATIVE_IMAGE_DIR_PATH = am.REPRESENTATIVE_IMAGE_DIR
 app = Flask(__name__, template_folder='templates', static_folder='static')
 CORS(app) 
 
+# Configure timeouts from environment variables
+REQUESTS_TIMEOUT = int(os.environ.get('REQUESTS_TIMEOUT', 60))
+INSTAGRAM_TIMEOUT = int(os.environ.get('INSTAGRAM_TIMEOUT', 60))
+app.logger.info(f"Using request timeout: {REQUESTS_TIMEOUT}s, Instagram timeout: {INSTAGRAM_TIMEOUT}s")
+
 UPLOAD_FOLDER = os.path.join(PROJECT_ROOT, 'pictures', 'incoming') 
 ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg'}
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
@@ -33,15 +39,21 @@ app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
 # Initialize Instaloader globally - this can take time on first run if it downloads data
 # We are not logging in, so capabilities are limited to public posts.
 # To avoid downloading files by default, we can configure it.
-L = instaloader.Instaloader(
-    download_pictures=False, 
-    download_videos=False, 
-    download_video_thumbnails=False,
-    download_geotags=False, 
-    download_comments=False, 
-    save_metadata=False,
-    compress_json=False # We are not saving metadata, but good to set
-)
+try:
+    app.logger.info("Initializing Instaloader instance...")
+    L = instaloader.Instaloader(
+        download_pictures=False, 
+        download_videos=False, 
+        download_video_thumbnails=False,
+        download_geotags=False, 
+        download_comments=False, 
+        save_metadata=False,
+        compress_json=False # We are not saving metadata, but good to set
+    )
+    app.logger.info("Instaloader initialized successfully")
+except Exception as e:
+    app.logger.error(f"Error initializing Instaloader: {e}")
+    L = None
 
 # Initialize technique extractor
 technique_extractor = None
@@ -60,7 +72,29 @@ def _get_image_url_from_instagram_post(post_url: str, req_headers: dict):
     Attempts to fetch the direct image URL and metadata from an Instagram post URL using Instaloader.
     Returns a tuple of (image_url, post_date_iso, caption, shortcode) if successful, otherwise None.
     """
+    global L
+    
+    # Initialize Instaloader if needed
+    if L is None:
+        try:
+            app.logger.info("Initializing Instaloader instance...")
+            L = instaloader.Instaloader(
+                download_pictures=False, 
+                download_videos=False, 
+                download_video_thumbnails=False,
+                download_geotags=False, 
+                download_comments=False, 
+                save_metadata=False,
+                compress_json=False
+            )
+            app.logger.info("Instaloader initialized successfully")
+        except Exception as e:
+            app.logger.error(f"Error initializing Instaloader: {e}")
+            return None
+    
     app.logger.info(f"Attempting to fetch Instagram post via Instaloader: {post_url}")
+    start_time = time.time()
+    
     try:
         # Extract shortcode from URL (e.g., /p/SHORTCODE/ or /reel/SHORTCODE/)
         match = re.search(r"/(?:p|reel)/([^/]+)", post_url)
@@ -70,52 +104,74 @@ def _get_image_url_from_instagram_post(post_url: str, req_headers: dict):
         shortcode = match.group(1)
         
         app.logger.info(f"Extracted shortcode: {shortcode}")
-        post = instaloader.Post.from_shortcode(L.context, shortcode)
-        post_date_iso = post.date_utc.isoformat()
-        caption = post.caption if post.caption else ""
+        # Longer timeout for Instagram operations
+        try:
+            with instaloader.Instaloader.context_timeout(INSTAGRAM_TIMEOUT):
+                app.logger.info(f"Fetching post with shortcode: {shortcode}...")
+                post = instaloader.Post.from_shortcode(L.context, shortcode)
+                app.logger.info(f"Successfully fetched post data in {time.time() - start_time:.2f} seconds")
+                post_date_iso = post.date_utc.isoformat()
+                caption = post.caption if post.caption else ""
 
-        if post.is_video:
-            app.logger.warning(f"Instagram post {shortcode} is a video. Thumbnail URL: {post.video_url}. We need an image.")
-            return post.url, post_date_iso, caption, shortcode
+                if post.is_video:
+                    app.logger.warning(f"Instagram post {shortcode} is a video. Thumbnail URL: {post.video_url}. We need an image.")
+                    return post.url, post_date_iso, caption, shortcode
 
-        target_image_url = None
-        
-        # Check for img_index in the original URL for carousels
-        img_index_match = re.search(r"img_index=(\d+)", post_url)
-        target_index = 1 # Default to first image
-        if img_index_match:
-            try:
-                target_index = int(img_index_match.group(1))
-                if target_index < 1: target_index = 1 # Ensure 1-based index
-                app.logger.info(f"Requested img_index: {target_index} for carousel post {shortcode}")
-            except ValueError:
-                app.logger.warning(f"Invalid img_index in URL: {post_url}. Defaulting to first image.")
-        
-        current_index = 0
-        if post.typename == 'GraphSidecar': # Indicates a carousel
-            app.logger.info(f"Post {shortcode} is a carousel. Iterating nodes...")
-            nodes = post.get_sidecar_nodes()
-            for i, node in enumerate(nodes):
-                current_index = i + 1 # 1-based index for user
-                if node.is_video:
-                    app.logger.info(f"Carousel item {current_index} is a video. Skipping.")
-                    continue
-                if current_index == target_index:
-                    target_image_url = node.display_url
-                    app.logger.info(f"Found image at img_index {target_index}: {target_image_url}")
-                    break
-            if not target_image_url and target_index == 1 and not nodes[0].is_video: # Fallback if index was out of bounds but first is image
-                 target_image_url = nodes[0].display_url 
-                 app.logger.info(f"img_index {target_index} not found or was video, falling back to first carousel image: {target_image_url}")
+                target_image_url = None
+                
+                # Check for img_index in the original URL for carousels
+                img_index_match = re.search(r"img_index=(\d+)", post_url)
+                target_index = 1 # Default to first image
+                if img_index_match:
+                    try:
+                        target_index = int(img_index_match.group(1))
+                        if target_index < 1: target_index = 1 # Ensure 1-based index
+                        app.logger.info(f"Requested img_index: {target_index} for carousel post {shortcode}")
+                    except ValueError:
+                        app.logger.warning(f"Invalid img_index in URL: {post_url}. Defaulting to first image.")
+                
+                current_index = 0
+                if post.typename == 'GraphSidecar': # Indicates a carousel
+                    app.logger.info(f"Post {shortcode} is a carousel. Iterating nodes...")
+                    nodes = post.get_sidecar_nodes()
+                    for i, node in enumerate(nodes):
+                        current_index = i + 1 # 1-based index for user
+                        if node.is_video:
+                            app.logger.info(f"Carousel item {current_index} is a video. Skipping.")
+                            continue
+                        if current_index == target_index:
+                            target_image_url = node.display_url
+                            app.logger.info(f"Found image at img_index {target_index}: {target_image_url}")
+                            break
+                    if not target_image_url and target_index == 1 and not nodes[0].is_video: # Fallback if index was out of bounds but first is image
+                        target_image_url = nodes[0].display_url 
+                        app.logger.info(f"img_index {target_index} not found or was video, falling back to first carousel image: {target_image_url}")
 
-        elif not post.is_video: # Single image post
-            target_image_url = post.url
-            app.logger.info(f"Post {shortcode} is a single image. URL: {target_image_url}")
+                elif not post.is_video: # Single image post
+                    target_image_url = post.url
+                    app.logger.info(f"Post {shortcode} is a single image. URL: {target_image_url}")
 
-        if target_image_url:
-            return target_image_url, post_date_iso, caption, shortcode
-        else:
-            app.logger.warning(f"Instaloader could not find a suitable image URL for {shortcode} (target_index: {target_index}).")
+                if target_image_url:
+                    total_time = time.time() - start_time
+                    app.logger.info(f"Instagram URL processing completed successfully in {total_time:.2f} seconds")
+                    return target_image_url, post_date_iso, caption, shortcode
+                else:
+                    app.logger.warning(f"Instaloader could not find a suitable image URL for {shortcode} (target_index: {target_index}).")
+                    return None
+        except instaloader.exceptions.ConnectionException as e:
+            app.logger.error(f"Instagram connection error for {shortcode}: {e}")
+            if "429" in str(e):
+                app.logger.error("Instagram rate limit exceeded (HTTP 429)")
+                return None, None, "Rate limited by Instagram", shortcode
+            return None
+        except instaloader.exceptions.InvalidArgumentException as e:
+            app.logger.error(f"Invalid Instagram argument for {shortcode}: {e}")
+            return None
+        except instaloader.exceptions.QueryReturnedNotFoundException as e:
+            app.logger.error(f"Instagram post not found for {shortcode}: {e}")
+            return None
+        except instaloader.exceptions.LoginRequiredException as e:
+            app.logger.error(f"Instagram login required for {shortcode}: {e}")
             return None
     
     except instaloader.exceptions.InstaloaderException as e:
@@ -348,6 +404,7 @@ def upload_class_image():
     date_taken_to_use = datetime.now().isoformat()  # Default value
     
     app.logger.info(f"Upload attempt: file='{file.filename if file else None}', url='{image_url}'")
+    start_time = time.time()
 
     if file and file.filename: 
         if allowed_file(file.filename):
@@ -369,28 +426,39 @@ def upload_class_image():
 
         if is_instagram_url:
             app.logger.info(f"Detected Instagram URL: {image_url}. Attempting Instaloader.")
-            result = _get_image_url_from_instagram_post(image_url, req_headers)
-            if result:
-                scraped_img_url, scraped_date_str, caption, instagram_shortcode = result
-                download_url_to_try = scraped_img_url
-                instagram_caption = caption
-                
-                # Extract techniques using GPT
-                init_technique_extractor()
-                if caption and technique_extractor:
-                    techniques_data = technique_extractor.extract_techniques(caption)
-                    app.logger.info(f"Extracted techniques: {techniques_data}")
-                
-                app.logger.info(f"Instaloader provided direct image URL: {download_url_to_try}, date: {scraped_date_str}")
-            else:
-                app.logger.warning(f"Instaloader could not extract direct image from Instagram URL: {image_url}.")
-                return jsonify(error=f"Failed to extract image from Instagram URL: {image_url}. Post might be private, video-only, or an unsupported format."), 400
+            try:
+                result = _get_image_url_from_instagram_post(image_url, req_headers)
+                if result:
+                    # Check if we got a rate limit response
+                    if result[0] is None and result[2] == "Rate limited by Instagram":
+                        app.logger.error("Instagram rate limit detected, returning error to client")
+                        return jsonify(error="Instagram rate limit exceeded. Please try again later or upload an image directly."), 429
+                        
+                    scraped_img_url, scraped_date_str, caption, instagram_shortcode = result
+                    download_url_to_try = scraped_img_url
+                    instagram_caption = caption
+                    
+                    # Extract techniques using GPT
+                    init_technique_extractor()
+                    if caption and technique_extractor:
+                        techniques_data = technique_extractor.extract_techniques(caption)
+                        app.logger.info(f"Extracted techniques: {techniques_data}")
+                    
+                    app.logger.info(f"Instaloader provided direct image URL: {download_url_to_try}, date: {scraped_date_str}")
+                else:
+                    app.logger.warning(f"Instaloader could not extract direct image from Instagram URL: {image_url}.")
+                    return jsonify(error=f"Failed to extract image from Instagram URL: {image_url}. Post might be private, video-only, or an unsupported format."), 400
+            except Exception as e:
+                app.logger.error(f"Error in Instagram processing: {e}")
+                return jsonify(error=f"Error processing Instagram URL: {str(e)}"), 500
         
         # Proceed to download from download_url_to_try
         try:
             app.logger.info(f"Attempting to download image from final URL: {download_url_to_try}")
-            response = requests.get(download_url_to_try, stream=True, timeout=15, headers=req_headers)
+            dl_start_time = time.time()
+            response = requests.get(download_url_to_try, stream=True, timeout=REQUESTS_TIMEOUT, headers=req_headers)
             response.raise_for_status() 
+            app.logger.info(f"Image download initiated in {time.time() - dl_start_time:.2f} seconds")
 
             content_type = response.headers.get('content-type')
             if not content_type or not content_type.startswith('image/'):
@@ -423,9 +491,10 @@ def upload_class_image():
                  original_filename_for_db = f"downloaded_image_{uuid.uuid4().hex[:8]}.{file_ext_to_use}"
 
             saved_image_path = os.path.join(app.config['UPLOAD_FOLDER'], original_filename_for_db)
+            save_start_time = time.time()
             with open(saved_image_path, 'wb') as f:
                 shutil.copyfileobj(response.raw, f)
-            app.logger.info(f"Image saved from URL to {saved_image_path}")
+            app.logger.info(f"Image saved from URL to {saved_image_path} in {time.time() - save_start_time:.2f} seconds")
             del response
         except requests.exceptions.RequestException as e:
             app.logger.error(f"Error downloading image from URL {download_url_to_try}: {e}")
@@ -782,8 +851,52 @@ def update_person_details(person_id):
 
 @app.route('/health')
 def health_check():
-    """Simple health check endpoint for GitHub Actions testing."""
-    return jsonify({"status": "ok"}), 200
+    """Detailed health check endpoint for GitHub Actions testing."""
+    health_data = {
+        "status": "ok",
+        "timestamp": datetime.now().isoformat(),
+        "app_version": "1.0.0",
+        "services": {
+            "database": "ok",
+            "instagram_client": "ok" if L is not None else "error",
+            "file_system": "ok"
+        },
+        "config": {
+            "instagram_timeout": INSTAGRAM_TIMEOUT,
+            "requests_timeout": REQUESTS_TIMEOUT,
+            "upload_folder_exists": os.path.exists(UPLOAD_FOLDER),
+            "debug_mode": app.debug
+        }
+    }
+    
+    # Check database connection
+    try:
+        conn = da.create_connection()
+        if conn:
+            conn.close()
+        else:
+            health_data["services"]["database"] = "error"
+    except Exception as e:
+        app.logger.error(f"Database health check failed: {e}")
+        health_data["services"]["database"] = f"error: {str(e)}"
+        health_data["status"] = "error"
+    
+    # Check file system 
+    try:
+        # Test write access to upload folder
+        test_file_path = os.path.join(UPLOAD_FOLDER, "health_check_test.txt")
+        with open(test_file_path, 'w') as f:
+            f.write("test")
+        os.remove(test_file_path)
+    except Exception as e:
+        app.logger.error(f"File system health check failed: {e}")
+        health_data["services"]["file_system"] = f"error: {str(e)}"
+        health_data["status"] = "error"
+    
+    if health_data["status"] == "error":
+        return jsonify(health_data), 500
+    
+    return jsonify(health_data), 200
 
 if __name__ == '__main__':
     # Make sure to create the 'data/representative_persons' and 'data/representative_features'

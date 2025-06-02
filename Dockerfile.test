@@ -11,6 +11,9 @@ RUN apt-get update && apt-get install -y \
     libxext6 \
     libxrender1 \
     ffmpeg \
+    curl \
+    net-tools \
+    iputils-ping \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy requirements first to leverage Docker cache
@@ -38,9 +41,27 @@ ENV PYTHONPATH=/app
 ENV DB_NAME=test_bjj_attendance.db
 ENV FLASK_APP=src.app
 ENV FLASK_DEBUG=1
+ENV TEST_TIMEOUT=300
 
 # Initialize the test database
-RUN python init_test_db.py
+RUN python -m src.database_setup 
+
+# Add a script to run tests with better handling of network issues
+RUN echo '#!/bin/bash\n\
+echo "Waiting for app to be fully ready..."\n\
+sleep 10\n\
+echo "Testing network connectivity..."\n\
+echo "Testing connectivity to Instagram..."\n\
+curl -I https://www.instagram.com || echo "Warning: Cannot curl Instagram (may be rate limited)"\n\
+echo "Testing connectivity to app server..."\n\
+curl -I $BASE_URL/health || echo "Warning: Cannot connect to app server"\n\
+echo "Running tests with extended diagnostics..."\n\
+echo "These tests will use actual Instagram URLs to test the real user experience."\n\
+python -m unittest discover -v -s src -p "test_*.py"\n\
+exit_code=$?\n\
+echo "Tests completed with exit code: $exit_code"\n\
+exit $exit_code\n\
+' > /app/run_tests.sh && chmod +x /app/run_tests.sh
 
 # Command to run tests
-CMD ["python", "-m", "unittest", "discover", "-s", "src", "-p", "test_*.py"] 
+CMD ["/app/run_tests.sh"] 

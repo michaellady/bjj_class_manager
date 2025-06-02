@@ -12,6 +12,8 @@ RUN apt-get update && apt-get install -y \
     libxext6 \
     libxrender1 \
     ffmpeg \
+    net-tools \
+    iputils-ping \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy requirements first to leverage Docker cache
@@ -38,15 +40,20 @@ RUN mkdir -p pictures/incoming \
 ENV PYTHONPATH=/app
 ENV FLASK_APP=src.app
 ENV FLASK_DEBUG=1
+ENV REQUESTS_TIMEOUT=180
+ENV INSTAGRAM_TIMEOUT=120
 
 # Expose port
 EXPOSE 5001
 
 # Create a startup script to initialize the database and start the app
 RUN echo '#!/bin/bash\n\
+echo "Testing network connectivity..."\n\
+ping -c 3 instagram.com || echo "Warning: Cannot ping Instagram (expected in containers)"\n\
+curl -I https://www.instagram.com || echo "Warning: Cannot connect to Instagram (may be rate limited)"\n\
 echo "Initializing database..."\n\
 python -c "from src.database_setup import initialize_database; initialize_database()"\n\
-echo "Starting Flask application..."\n\
+echo "Starting Flask application with extended timeouts..."\n\
 python -m flask run --host=0.0.0.0 --port=5001\n\
 ' > /app/start.sh && chmod +x /app/start.sh
 
