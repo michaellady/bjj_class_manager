@@ -1,13 +1,53 @@
+// Log JavaScript events to server for debugging
+function logToServer(message, level = 'info') {
+    try {
+        fetch('/log-js', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                message: message,
+                level: level
+            })
+        }).catch(err => console.error('Error logging to server:', err));
+    } catch (e) {
+        console.error('Error sending log to server:', e);
+    }
+}
+
 document.addEventListener('DOMContentLoaded', () => {
     console.log("BJJ Attendance Tracker JS Loaded");
+    logToServer("BJJ Attendance Tracker JS Loaded");
 
     const API_BASE_URL = 'http://127.0.0.1:5001/api'; 
+    const UPLOAD_FOLDER = '/Users/mikelady/dev/class_pictures/pictures/incoming'; // Path to incoming pictures
+    const PROCESSED_FOLDER = '/Users/mikelady/dev/class_pictures/pictures/processed'; // Path to processed pictures
 
     // DOM Elements - New Dashboard
     const uploadForm = document.getElementById('upload-form');
     const imageFilesInput = document.getElementById('image-files-input');
     const imageUrlInput = document.getElementById('image-url-input'); 
     const uploadStatusDiv = document.getElementById('upload-status');
+    
+    // Attendance Section Elements
+    const dateRangeSelect = document.getElementById('dateRange');
+    const studentFilterSelect = document.getElementById('studentFilter');
+    const applyFiltersBtn = document.getElementById('applyFilters');
+    const totalClassesElement = document.getElementById('totalClasses');
+    const totalStudentsElement = document.getElementById('totalStudents');
+    const avgAttendanceElement = document.getElementById('avgAttendance');
+    const leaderboardBody = document.getElementById('leaderboardBody');
+    const attendanceTableBody = document.getElementById('attendanceTableBody');
+    const imageDetailsModal = document.getElementById('imageDetailsModal');
+    const modalImage = document.getElementById('modalImage');
+    const modalAttendees = document.getElementById('modalAttendees');
+    
+    // Class Gallery Elements
+    const galleryDateRangeSelect = document.getElementById('galleryDateRange');
+    const applyGalleryFiltersBtn = document.getElementById('applyGalleryFilters');
+    const galleryContainer = document.getElementById('galleryContainer');
+    const galleryPagination = document.getElementById('galleryPagination');
     
     const loadPersonsBtn = document.getElementById('load-persons-btn');
     const personsListContainer = document.getElementById('persons-list-container');
@@ -389,19 +429,25 @@ document.addEventListener('DOMContentLoaded', () => {
         currentViewingImageId = imageId; // Ensure this is set
         showImageDetailView();
         if(imageDetailFilename) imageDetailFilename.textContent = `Details for: ${originalFilename} (Image ID: ${imageId})`;
-        if(mainClassImage) mainClassImage.src = ''; 
+        if(mainClassImage) {
+            mainClassImage.src = 'https://via.placeholder.com/600x400?text=Loading...';
+        }
         if(detectionsGrid) detectionsGrid.innerHTML = '<p>Loading detections...</p>';
         try {
             const response = await fetch(`${API_BASE_URL}/images/${imageId}/detections`);
             if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
             const data = await response.json();
             
+            // Load main image using data URL method
             if(mainClassImage && data.image_info) {
-                const mainImgFilename = data.image_info.filepath_processed ? 
-                                   data.image_info.filepath_processed.split('/').pop() : 
-                                   data.image_info.original_filename;
-                mainClassImage.src = `/static/incoming_pictures/${mainImgFilename}`; 
-                mainClassImage.onerror = () => { mainClassImage.src = 'https://via.placeholder.com/600x400?text=Main+Image+Not+Found';};
+                // Check if we have Instagram shortcode or filepath
+                if (data.image_info.instagram_shortcode) {
+                    loadMainImageWithDataUrl(data.image_info.instagram_shortcode);
+                } else if (data.image_info.filepath_processed) {
+                    loadMainImageWithDataUrlByPath(data.image_info.filepath_processed);
+                } else {
+                    mainClassImage.src = 'https://via.placeholder.com/600x400?text=Main+Image+Not+Found';
+                }
             }
 
             if(detectionsGrid) detectionsGrid.innerHTML = ''; 
@@ -447,6 +493,46 @@ document.addEventListener('DOMContentLoaded', () => {
         } catch (error) {
             console.error(`Error fetching detections for image ${imageId}:`, error);
             if(detectionsGrid) detectionsGrid.innerHTML = `<p>Error loading detections: ${error.message}</p>`;
+            if(mainClassImage) mainClassImage.src = 'https://via.placeholder.com/600x400?text=Error';
+        }
+    }
+
+    // Helper function for loading main image with data URL
+    async function loadMainImageWithDataUrl(shortcode) {
+        try {
+            const response = await fetch(`/api/images/data-url?shortcode=${shortcode}`);
+            if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+            
+            const data = await response.json();
+            if (!data.success || !data.data_url) {
+                throw new Error(data.error || 'Failed to get data URL');
+            }
+            
+            console.log('Successfully loaded main image via data URL');
+            mainClassImage.src = data.data_url;
+        } catch (error) {
+            console.error("Error loading main image:", error);
+            mainClassImage.src = 'https://via.placeholder.com/600x400?text=Main+Image+Not+Found';
+        }
+    }
+
+    // Helper function for loading main image with data URL by path
+    async function loadMainImageWithDataUrlByPath(filepath) {
+        try {
+            const encodedPath = encodeURIComponent(filepath);
+            const response = await fetch(`/api/images/data-url?path=${encodedPath}`);
+            if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+            
+            const data = await response.json();
+            if (!data.success || !data.data_url) {
+                throw new Error(data.error || 'Failed to get data URL');
+            }
+            
+            console.log('Successfully loaded main image via data URL');
+            mainClassImage.src = data.data_url;
+        } catch (error) {
+            console.error("Error loading main image:", error);
+            mainClassImage.src = 'https://via.placeholder.com/600x400?text=Main+Image+Not+Found';
         }
     }
 
@@ -666,6 +752,486 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
+    // --- Attendance History Functions ---
+    async function fetchAttendanceHistory() {
+        console.log("Fetching attendance history...");
+        if (leaderboardBody) leaderboardBody.innerHTML = '<tr><td colspan="4">Loading...</td></tr>';
+        if (attendanceTableBody) attendanceTableBody.innerHTML = '<tr><td colspan="4">Loading...</td></tr>';
+        
+        try {
+            const days = dateRangeSelect ? dateRangeSelect.value : '30';
+            const studentId = studentFilterSelect ? studentFilterSelect.value : 'all';
+            
+            const response = await fetch(`${API_BASE_URL}/attendance/history?days=${days}&student_id=${studentId}`);
+            if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+            const data = await response.json();
+            
+            // Update stats
+            if (totalClassesElement) totalClassesElement.textContent = data.stats.total_classes;
+            if (totalStudentsElement) totalStudentsElement.textContent = data.stats.total_students;
+            if (avgAttendanceElement) avgAttendanceElement.textContent = data.stats.avg_attendance;
+            
+            // Update leaderboard
+            if (leaderboardBody) {
+                leaderboardBody.innerHTML = '';
+                if (data.leaderboard.length === 0) {
+                    leaderboardBody.innerHTML = '<tr><td colspan="4">No attendance data found</td></tr>';
+                } else {
+                    data.leaderboard.forEach((person, index) => {
+                        const row = document.createElement('tr');
+                        row.innerHTML = `
+                            <td>${index + 1}</td>
+                            <td><a href="#" class="student-link" data-person-id="${person.person_id}">${person.name || 'Unknown'}</a></td>
+                            <td>${person.classes_attended}</td>
+                            <td>${person.attendance_percentage.toFixed(1)}%</td>
+                        `;
+                        leaderboardBody.appendChild(row);
+                    });
+                    
+                    // Add event listeners to student links
+                    const studentLinks = leaderboardBody.querySelectorAll('.student-link');
+                    studentLinks.forEach(link => {
+                        link.addEventListener('click', (e) => {
+                            e.preventDefault();
+                            const personId = e.target.dataset.personId;
+                            loadAndShowStudentDetails(personId);
+                        });
+                    });
+                }
+            }
+            
+            // Update attendance records table
+            if (attendanceTableBody) {
+                attendanceTableBody.innerHTML = '';
+                if (data.attendance_records.length === 0) {
+                    attendanceTableBody.innerHTML = '<tr><td colspan="4">No class records found</td></tr>';
+                } else {
+                    data.attendance_records.forEach(record => {
+                        const row = document.createElement('tr');
+                        
+                        // Format techniques
+                        let techniquesHtml = '';
+                        if (record.techniques && record.techniques.length > 0) {
+                            const techniquesList = record.techniques.map(t => t.name).join(', ');
+                            techniquesHtml = `<span title="${techniquesList}">${record.techniques.length} techniques</span>`;
+                        } else {
+                            techniquesHtml = '<span>None recorded</span>';
+                        }
+                        
+                        row.innerHTML = `
+                            <td>${new Date(record.date_taken).toLocaleDateString()}</td>
+                            <td>${record.attendees} students</td>
+                            <td>${techniquesHtml}</td>
+                            <td>
+                                <button class="view-details-btn" data-image-id="${record.class_image_id}">View Details</button>
+                            </td>
+                        `;
+                        attendanceTableBody.appendChild(row);
+                    });
+                    
+                    // Add event listeners to view details buttons
+                    const viewDetailsButtons = attendanceTableBody.querySelectorAll('.view-details-btn');
+                    viewDetailsButtons.forEach(button => {
+                        button.addEventListener('click', (e) => {
+                            const imageId = e.target.dataset.imageId;
+                            openImageDetailsModal(imageId);
+                        });
+                    });
+                }
+            }
+            
+            // Populate student filter if not already populated
+            if (studentFilterSelect && studentFilterSelect.options.length <= 1) {
+                // Add all students from the leaderboard to the filter
+                data.leaderboard.forEach(person => {
+                    const option = document.createElement('option');
+                    option.value = person.person_id;
+                    option.textContent = person.name || `ID: ${person.person_id.slice(-6)}...`;
+                    studentFilterSelect.appendChild(option);
+                });
+            }
+            
+            console.log("Attendance history loaded:", data);
+            
+        } catch (error) {
+            console.error("Error fetching attendance history:", error);
+            if (leaderboardBody) leaderboardBody.innerHTML = `<tr><td colspan="4">Error: ${error.message}</td></tr>`;
+            if (attendanceTableBody) attendanceTableBody.innerHTML = `<tr><td colspan="4">Error: ${error.message}</td></tr>`;
+        }
+    }
+    
+    async function openImageDetailsModal(imageId) {
+        if (!imageDetailsModal || !modalImage || !modalAttendees) return;
+        
+        modalAttendees.innerHTML = 'Loading attendees...';
+        modalImage.src = 'https://via.placeholder.com/400x300?text=Loading...';
+        
+        try {
+            const response = await fetch(`${API_BASE_URL}/class-images/${imageId}`);
+            if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+            const data = await response.json();
+            
+            // Show attendees first (while image loads)
+            modalAttendees.innerHTML = '';
+            if (data.attendees && data.attendees.length > 0) {
+                const attendeesList = document.createElement('ul');
+                attendeesList.classList.add('attendees-list');
+                
+                data.attendees.forEach(attendee => {
+                    const listItem = document.createElement('li');
+                    listItem.innerHTML = `
+                        <a href="#" class="student-link" data-person-id="${attendee.person_id}">${attendee.name || 'Unknown'}</a>
+                        <span class="detection-count">(${attendee.detections.length} detection${attendee.detections.length !== 1 ? 's' : ''})</span>
+                    `;
+                    attendeesList.appendChild(listItem);
+                });
+                
+                modalAttendees.appendChild(attendeesList);
+                
+                // Add event listeners to student links
+                const studentLinks = modalAttendees.querySelectorAll('.student-link');
+                studentLinks.forEach(link => {
+                    link.addEventListener('click', (e) => {
+                        e.preventDefault();
+                        const personId = e.target.dataset.personId;
+                        imageDetailsModal.style.display = 'none';
+                        loadAndShowStudentDetails(personId);
+                    });
+                });
+            } else {
+                modalAttendees.innerHTML = '<p>No attendees found for this class.</p>';
+            }
+            
+            // Show modal right away (while image is loading)
+            imageDetailsModal.style.display = 'block';
+            
+            // Load the image using data URL method
+            if (data.image && data.image.instagram_shortcode) {
+                // Use the most reliable method - Data URL
+                loadModalImageWithDataUrl(data.image.instagram_shortcode);
+            } else if (data.image && data.image.filepath_processed) {
+                loadModalImageWithDataUrlByPath(data.image.filepath_processed);
+            } else {
+                modalImage.src = 'https://via.placeholder.com/400x300?text=No+Image+Available';
+            }
+            
+        } catch (error) {
+            console.error(`Error fetching image details for ${imageId}:`, error);
+            modalAttendees.innerHTML = `<p>Error loading attendees: ${error.message}</p>`;
+            modalImage.src = 'https://via.placeholder.com/400x300?text=Error';
+        }
+    }
+    
+    async function loadModalImageWithDataUrl(shortcode) {
+        try {
+            const response = await fetch(`/api/images/data-url?shortcode=${shortcode}`);
+            if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+            
+            const data = await response.json();
+            if (!data.success || !data.data_url) {
+                throw new Error(data.error || 'Failed to get data URL');
+            }
+            
+            console.log('Successfully loaded modal image via data URL');
+            modalImage.src = data.data_url;
+        } catch (error) {
+            console.error("Error loading modal image:", error);
+            modalImage.src = 'https://via.placeholder.com/400x300?text=Image+Not+Found';
+        }
+    }
+
+    async function loadModalImageWithDataUrlByPath(filepath) {
+        try {
+            const encodedPath = encodeURIComponent(filepath);
+            const response = await fetch(`/api/images/data-url?path=${encodedPath}`);
+            if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+            
+            const data = await response.json();
+            if (!data.success || !data.data_url) {
+                throw new Error(data.error || 'Failed to get data URL');
+            }
+            
+            console.log('Successfully loaded modal image via data URL');
+            modalImage.src = data.data_url;
+        } catch (error) {
+            console.error("Error loading modal image:", error);
+            modalImage.src = 'https://via.placeholder.com/400x300?text=Image+Not+Found';
+        }
+    }
+
+    // --- Class Gallery Functions ---
+    async function fetchClassGallery() {
+        console.log("Fetching class gallery...");
+        if (galleryContainer) galleryContainer.innerHTML = '<div class="loading-indicator">Loading class pictures...</div>';
+        
+        try {
+            const days = galleryDateRangeSelect ? galleryDateRangeSelect.value : '30';
+            const page = 1; // Start with first page
+            const perPage = 12; // Show 12 images per page
+            
+            const response = await fetch(`${API_BASE_URL}/class-images?days=${days}&page=${page}&per_page=${perPage}`);
+            if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+            const data = await response.json();
+            
+            console.log("Gallery API response:", data);
+            
+            // Display gallery images
+            if (galleryContainer) {
+                galleryContainer.innerHTML = '';
+                
+                if (!data.images || data.images.length === 0) {
+                    galleryContainer.innerHTML = '<p>No class pictures found in the selected date range.</p>';
+                } else {
+                    const galleryGrid = document.createElement('div');
+                    galleryGrid.classList.add('gallery-grid');
+                    
+                    // Process each image
+                    for (let index = 0; index < data.images.length; index++) {
+                        const image = data.images[index];
+                        console.log(`Processing gallery image ${index}:`, image);
+                        
+                        const galleryItem = document.createElement('div');
+                        galleryItem.classList.add('gallery-item');
+                        
+                        // Create loading indicator
+                        const loadingDiv = document.createElement('div');
+                        loadingDiv.textContent = 'Loading image...';
+                        loadingDiv.style.padding = '10px';
+                        loadingDiv.style.textAlign = 'center';
+                        galleryItem.appendChild(loadingDiv);
+                        
+                        // Date and metadata
+                        const date = document.createElement('div');
+                        date.classList.add('gallery-date');
+                        date.textContent = new Date(image.date_taken).toLocaleDateString();
+                        galleryItem.appendChild(date);
+                        
+                        // Attendees count
+                        const attendeesDiv = document.createElement('div');
+                        attendeesDiv.className = 'attendees-count';
+                        attendeesDiv.innerHTML = '<i class="fas fa-users"></i> 18 attendees';
+                        galleryItem.appendChild(attendeesDiv);
+                        
+                        // View details button
+                        const viewBtn = document.createElement('button');
+                        viewBtn.classList.add('view-details-btn');
+                        viewBtn.textContent = 'View Details';
+                        viewBtn.dataset.imageId = image.class_image_id;
+                        viewBtn.addEventListener('click', () => {
+                            loadAndShowImageDetections(image.class_image_id, image.original_filename);
+                        });
+                        galleryItem.appendChild(viewBtn);
+                        
+                        // Add to grid immediately, then load image asynchronously
+                        galleryGrid.appendChild(galleryItem);
+                        
+                        // USE DATA URL METHOD - Loading image with data URL approach
+                        if (image.instagram_shortcode) {
+                            fetchDataUrlImage(image.instagram_shortcode, galleryItem, loadingDiv);
+                        } else if (image.filepath_processed) {
+                            const encodedPath = encodeURIComponent(image.filepath_processed);
+                            fetchDataUrlImageByPath(encodedPath, galleryItem, loadingDiv);
+                        } else {
+                            showPlaceholder(galleryItem, loadingDiv);
+                        }
+                    }
+                    
+                    galleryContainer.appendChild(galleryGrid);
+                }
+                
+                // Set up pagination
+                if (galleryPagination && data.pagination) {
+                    galleryPagination.innerHTML = '';
+                    
+                    if (data.pagination.total_pages > 1) {
+                        for (let i = 1; i <= data.pagination.total_pages; i++) {
+                            const pageLink = document.createElement('a');
+                            pageLink.href = '#';
+                            pageLink.textContent = i;
+                            if (i === data.pagination.page) {
+                                pageLink.classList.add('active');
+                            }
+                            
+                            pageLink.addEventListener('click', (e) => {
+                                e.preventDefault();
+                                fetchClassGalleryPage(i, days, perPage);
+                            });
+                            
+                            galleryPagination.appendChild(pageLink);
+                        }
+                    }
+                }
+            }
+            
+            console.log("Class gallery loaded:", data);
+            
+        } catch (error) {
+            console.error("Error fetching class gallery:", error);
+            if (galleryContainer) {
+                galleryContainer.innerHTML = `<p>Error loading class gallery: ${error.message}</p>`;
+            }
+        }
+    }
+
+    // Helper function to fetch and display image using Data URL method
+    async function fetchDataUrlImage(shortcode, galleryItem, loadingDiv) {
+        try {
+            const response = await fetch(`/api/images/data-url?shortcode=${shortcode}`);
+            if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+            
+            const data = await response.json();
+            if (!data.success || !data.data_url) {
+                throw new Error(data.error || 'Failed to get data URL');
+            }
+            
+            // Create and add the image
+            const img = document.createElement('img');
+            img.src = data.data_url;
+            img.alt = 'Class Image';
+            img.style.width = '100%';
+            img.style.marginBottom = '10px';
+            
+            // Replace loading indicator with image
+            galleryItem.removeChild(loadingDiv);
+            galleryItem.insertBefore(img, galleryItem.firstChild);
+        } catch (error) {
+            console.error('Error loading image via data URL:', error);
+            showPlaceholder(galleryItem, loadingDiv);
+        }
+    }
+
+    // Helper function to fetch and display image by path using Data URL method
+    async function fetchDataUrlImageByPath(encodedPath, galleryItem, loadingDiv) {
+        try {
+            const response = await fetch(`/api/images/data-url?path=${encodedPath}`);
+            if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+            
+            const data = await response.json();
+            if (!data.success || !data.data_url) {
+                throw new Error(data.error || 'Failed to get data URL');
+            }
+            
+            // Create and add the image
+            const img = document.createElement('img');
+            img.src = data.data_url;
+            img.alt = 'Class Image';
+            img.style.width = '100%';
+            img.style.marginBottom = '10px';
+            
+            // Replace loading indicator with image
+            galleryItem.removeChild(loadingDiv);
+            galleryItem.insertBefore(img, galleryItem.firstChild);
+        } catch (error) {
+            console.error('Error loading image via data URL:', error);
+            showPlaceholder(galleryItem, loadingDiv);
+        }
+    }
+
+    // Helper function to show placeholder when image loading fails
+    function showPlaceholder(galleryItem, loadingDiv) {
+        // Create placeholder image
+        const placeholder = document.createElement('img');
+        placeholder.src = 'https://via.placeholder.com/200x200?text=BJJ+Class+Image';
+        placeholder.alt = 'Image not available';
+        placeholder.style.width = '100%';
+        placeholder.style.marginBottom = '10px';
+        
+        // Replace loading indicator with placeholder
+        galleryItem.removeChild(loadingDiv);
+        galleryItem.insertBefore(placeholder, galleryItem.firstChild);
+    }
+
+    async function fetchClassGalleryPage(page, days, perPage) {
+        if (galleryContainer) galleryContainer.innerHTML = '<div class="loading-indicator">Loading class pictures...</div>';
+        
+        try {
+            const response = await fetch(`${API_BASE_URL}/class-images?days=${days}&page=${page}&per_page=${perPage}`);
+            if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+            const data = await response.json();
+            
+            // Update the gallery with the new page data
+            if (galleryContainer) {
+                galleryContainer.innerHTML = '';
+                
+                if (!data.images || data.images.length === 0) {
+                    galleryContainer.innerHTML = '<p>No class pictures found in the selected date range.</p>';
+                } else {
+                    const galleryGrid = document.createElement('div');
+                    galleryGrid.classList.add('gallery-grid');
+                    
+                    // Process each image
+                    for (let index = 0; index < data.images.length; index++) {
+                        const image = data.images[index];
+                        console.log(`Processing gallery image ${index}:`, image);
+                        
+                        const galleryItem = document.createElement('div');
+                        galleryItem.classList.add('gallery-item');
+                        
+                        // Create loading indicator
+                        const loadingDiv = document.createElement('div');
+                        loadingDiv.textContent = 'Loading image...';
+                        loadingDiv.style.padding = '10px';
+                        loadingDiv.style.textAlign = 'center';
+                        galleryItem.appendChild(loadingDiv);
+                        
+                        // Date and metadata
+                        const date = document.createElement('div');
+                        date.classList.add('gallery-date');
+                        date.textContent = new Date(image.date_taken).toLocaleDateString();
+                        galleryItem.appendChild(date);
+                        
+                        // Attendees count
+                        const attendeesDiv = document.createElement('div');
+                        attendeesDiv.className = 'attendees-count';
+                        attendeesDiv.innerHTML = '<i class="fas fa-users"></i> 18 attendees';
+                        galleryItem.appendChild(attendeesDiv);
+                        
+                        // View details button
+                        const viewBtn = document.createElement('button');
+                        viewBtn.classList.add('view-details-btn');
+                        viewBtn.textContent = 'View Details';
+                        viewBtn.dataset.imageId = image.class_image_id;
+                        viewBtn.addEventListener('click', () => {
+                            loadAndShowImageDetections(image.class_image_id, image.original_filename);
+                        });
+                        galleryItem.appendChild(viewBtn);
+                        
+                        // Add to grid immediately, then load image asynchronously
+                        galleryGrid.appendChild(galleryItem);
+                        
+                        // USE DATA URL METHOD - Loading image with data URL approach
+                        if (image.instagram_shortcode) {
+                            fetchDataUrlImage(image.instagram_shortcode, galleryItem, loadingDiv);
+                        } else if (image.filepath_processed) {
+                            const encodedPath = encodeURIComponent(image.filepath_processed);
+                            fetchDataUrlImageByPath(encodedPath, galleryItem, loadingDiv);
+                        } else {
+                            showPlaceholder(galleryItem, loadingDiv);
+                        }
+                    }
+                    
+                    galleryContainer.appendChild(galleryGrid);
+                }
+                
+                // Update pagination active state
+                if (galleryPagination) {
+                    const pageLinks = galleryPagination.querySelectorAll('a');
+                    pageLinks.forEach(link => {
+                        link.classList.remove('active');
+                        if (parseInt(link.textContent) === page) {
+                            link.classList.add('active');
+                        }
+                    });
+                }
+            }
+            
+        } catch (error) {
+            console.error(`Error fetching class gallery page ${page}:`, error);
+            if (galleryContainer) {
+                galleryContainer.innerHTML = `<p>Error loading class gallery: ${error.message}</p>`;
+            }
+        }
+    }
 
     // --- Merge Tool Functions ---
     function displayMergeCandidates(candidates, targetContainer, canonicalRadioName, onCanonicalSelectCallback) {
@@ -788,6 +1354,74 @@ document.addEventListener('DOMContentLoaded', () => {
     if (loadPersonsBtn) loadPersonsBtn.addEventListener('click', fetchAllPersons);
     if (loadClassImagesBtn) loadClassImagesBtn.addEventListener('click', fetchClassImages);
     
+    // Attendance section event listeners
+    if (applyFiltersBtn) {
+        applyFiltersBtn.addEventListener('click', fetchAttendanceHistory);
+    }
+    
+    // Tab navigation event listeners
+    document.querySelectorAll('header nav ul li a').forEach(link => {
+        link.addEventListener('click', (e) => {
+            e.preventDefault();
+            const targetId = e.target.getAttribute('href').substring(1);
+            logToServer(`Tab navigation: clicked on ${e.target.textContent} (target: #${targetId})`);
+            
+            // Remove active class from all links
+            document.querySelectorAll('header nav ul li a').forEach(navLink => {
+                navLink.classList.remove('active');
+            });
+            
+            // Add active class to clicked link
+            e.target.classList.add('active');
+            
+            // Hide all sections
+            document.querySelectorAll('main section').forEach(section => {
+                section.classList.add('hidden-section');
+                section.classList.remove('active-section');
+                logToServer(`Tab navigation: hiding section #${section.id}`);
+            });
+            
+            // Show target section
+            const targetSection = document.getElementById(targetId);
+            if (targetSection) {
+                targetSection.classList.remove('hidden-section');
+                targetSection.classList.add('active-section');
+                logToServer(`Tab navigation: showing section #${targetId}`);
+                
+                // Load data for the section if needed
+                if (targetId === 'attendance-section') {
+                    logToServer('Tab navigation: loading attendance data');
+                    fetchAttendanceHistory();
+                } else if (targetId === 'gallery-section') {
+                    logToServer('Tab navigation: loading gallery data');
+                    fetchClassGallery();
+                }
+            } else {
+                logToServer(`Tab navigation ERROR: target section #${targetId} not found`, 'error');
+            }
+        });
+    });
+    
+    // Gallery section event listeners
+    if (applyGalleryFiltersBtn) {
+        applyGalleryFiltersBtn.addEventListener('click', fetchClassGallery);
+    }
+    
+    // Image modal close button
+    const modalCloseBtn = document.querySelector('#imageDetailsModal .close');
+    if (modalCloseBtn) {
+        modalCloseBtn.addEventListener('click', () => {
+            imageDetailsModal.style.display = 'none';
+        });
+    }
+    
+    // Close modal when clicking outside of it
+    window.addEventListener('click', (e) => {
+        if (e.target === imageDetailsModal) {
+            imageDetailsModal.style.display = 'none';
+        }
+    });
+    
     if (backToDashboardBtn) backToDashboardBtn.addEventListener('click', () => {
         currentViewingImageId = null; // Clear the current image ID when going back
         showMainDashboard();
@@ -860,8 +1494,392 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
     
-    // Initialize view
-    showMainDashboard(); 
+    // Initialize view - check if we should show a specific tab based on URL hash
+    const hashFromUrl = window.location.hash;
+    if (hashFromUrl) {
+        const targetTabLink = document.querySelector(`header nav ul li a[href="${hashFromUrl}"]`);
+        if (targetTabLink) {
+            logToServer(`Initializing with tab from URL hash: ${hashFromUrl}`);
+            targetTabLink.click();
+        } else {
+            logToServer(`Hash ${hashFromUrl} in URL but no matching tab found`, 'warn');
+            showMainDashboard();
+        }
+    } else {
+        // Default initialization
+        showMainDashboard();
+        
+        // Load attendance history data for the default tab
+        const defaultActiveTab = document.querySelector('header nav ul li a.active');
+        if (defaultActiveTab) {
+            const defaultTabTarget = defaultActiveTab.getAttribute('href');
+            logToServer(`Default active tab: ${defaultActiveTab.textContent} (${defaultTabTarget})`);
+            if (defaultTabTarget === '#attendance-section') {
+                fetchAttendanceHistory();
+            } else if (defaultTabTarget === '#gallery-section') {
+                fetchClassGallery();
+            }
+        } else {
+            logToServer('No default active tab found', 'warn');
+        }
+    }
+    
+    // Always load these regardless of the active tab
     fetchAllPersons(); // Load persons on page load
     fetchClassImages(); // Load class images on page load
+
+    // At the beginning of document.addEventListener('DOMContentLoaded', () => {...}) function, after variable declarations
+    function enhanceGalleryImages() {
+        console.log("=== GALLERY DEBUG: enhanceGalleryImages called ===");
+        
+        // Find all gallery images
+        const galleryItems = document.querySelectorAll('.gallery-item img.gallery-image');
+        console.log(`Found ${galleryItems.length} gallery images to enhance`);
+        
+        if (galleryItems.length === 0) {
+            console.log("No gallery images found to enhance");
+            return;
+        }
+        
+        galleryItems.forEach((img, index) => {
+            // Get the original src
+            const originalSrc = img.getAttribute('src');
+            console.log(`Processing image #${index}: ${originalSrc}`);
+            
+            // Check if the image is already a placeholder
+            if (originalSrc.includes('placeholder.jpg')) {
+                console.log(`Image #${index} is already showing a placeholder`);
+                
+                // Try to find Instagram shortcode from class image ID
+                const galleryItem = img.closest('.gallery-item');
+                if (galleryItem) {
+                    const imageId = galleryItem.getAttribute('data-image-id');
+                    if (imageId) {
+                        console.log(`Found image ID: ${imageId}, will try to fetch Instagram image`);
+                        
+                        // First, try to get the class image details to find the shortcode
+                        fetch(`/api/class-images/${imageId}`)
+                            .then(response => {
+                                if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+                                return response.json();
+                            })
+                            .then(data => {
+                                if (data.success && data.image && data.image.instagram_shortcode) {
+                                    const shortcode = data.image.instagram_shortcode;
+                                    console.log(`Found Instagram shortcode from API: ${shortcode}`);
+                                    
+                                    // Try method 1: Instagram incoming folder path
+                                    const incomingPath = `/pictures/incoming/instagram_${shortcode}.jpg`;
+                                    console.log(`Trying Instagram incoming path: ${incomingPath}`);
+                                    
+                                    // Create a temporary image to test if this path works
+                                    const testImg = new Image();
+                                    testImg.onload = function() {
+                                        console.log(`Instagram incoming path worked for ${shortcode}`);
+                                        img.src = incomingPath;
+                                    };
+                                    testImg.onerror = function() {
+                                        console.log(`Instagram incoming path failed for ${shortcode}, trying data URL method`);
+                                        
+                                        // Try method 3: Data URL method as fallback
+                                        fetch(`/api/images/data-url?shortcode=${shortcode}`)
+                                            .then(response => {
+                                                if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+                                                return response.json();
+                                            })
+                                            .then(data => {
+                                                if (data.success && data.data_url) {
+                                                    console.log(`Successfully loaded data URL for ${shortcode}`);
+                                                    img.src = data.data_url;
+                                                } else {
+                                                    throw new Error(data.error || 'Failed to get data URL');
+                                                }
+                                            })
+                                            .catch(error => {
+                                                console.error(`All methods failed for ${shortcode}: ${error.message}`);
+                                                // Keep the placeholder as is
+                                            });
+                                    };
+                                    testImg.src = incomingPath;
+                                } else if (data.success && data.image && data.image.filepath_processed) {
+                                    // Not an Instagram image, but we have a filepath
+                                    const filepath = data.image.filepath_processed;
+                                    console.log(`Found filepath from API: ${filepath}`);
+                                    
+                                    // Use data URL method for this file
+                                    const encodedPath = encodeURIComponent(filepath);
+                                    fetch(`/api/images/data-url?path=${encodedPath}`)
+                                        .then(response => {
+                                            if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+                                            return response.json();
+                                        })
+                                        .then(data => {
+                                            if (data.success && data.data_url) {
+                                                console.log(`Successfully loaded data URL for filepath`);
+                                                img.src = data.data_url;
+                                            } else {
+                                                throw new Error(data.error || 'Failed to get data URL');
+                                            }
+                                        })
+                                        .catch(error => {
+                                            console.error(`Failed to load image via data URL: ${error.message}`);
+                                            // Keep the placeholder as is
+                                        });
+                                }
+                            })
+                            .catch(error => {
+                                console.error(`Error fetching class image details: ${error.message}`);
+                                // Keep the placeholder as is
+                            });
+                    }
+                }
+                return;
+            }
+            
+            // Extract filename from path
+            const pathParts = originalSrc.split('/');
+            const filename = pathParts[pathParts.length - 1];
+            
+            // Check if this is an Instagram image from filename pattern
+            if (filename.startsWith('instagram_')) {
+                console.log(`Image #${index} appears to be Instagram image: ${filename}`);
+                
+                // Extract shortcode from filename
+                const shortcodeMatch = filename.match(/instagram_([A-Za-z0-9_-]+)\.jpg/);
+                if (shortcodeMatch && shortcodeMatch[1]) {
+                    const shortcode = shortcodeMatch[1];
+                    console.log(`Found Instagram shortcode: ${shortcode}`);
+                    
+                    // Use method 3: Data URL method (most reliable)
+                    fetch(`/api/images/data-url?shortcode=${shortcode}`)
+                        .then(response => {
+                            console.log(`Data URL API response status for ${shortcode}: ${response.status}`);
+                            if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+                            return response.json();
+                        })
+                        .then(data => {
+                            console.log(`Data URL API response for ${shortcode}:`, data);
+                            if (data.success && data.data_url) {
+                                console.log(`Successfully loaded data URL for ${shortcode}`);
+                                img.src = data.data_url;
+                            } else {
+                                throw new Error(data.error || 'Failed to get data URL');
+                            }
+                        })
+                        .catch(error => {
+                            console.error(`Error loading image via data URL: ${error.message}`);
+                            // Try method 1 as fallback
+                            const incomingPath = `/pictures/incoming/instagram_${shortcode}.jpg`;
+                            console.log(`Trying Instagram incoming path as fallback: ${incomingPath}`);
+                            img.src = incomingPath;
+                        });
+                }
+            } else if (originalSrc.includes('/pictures/processed/')) {
+                // This might be a non-Instagram image, or it might be misidentified
+                console.log(`Image #${index} appears to be a processed local image`);
+                
+                // Check if it matches the Instagram filename pattern in a different way
+                const instagramMatch = filename.match(/501933063_([0-9]+)_([0-9]+)_n\.jpg/);
+                if (instagramMatch) {
+                    console.log(`Image #${index} appears to be Instagram image with filename pattern: ${filename}`);
+                    
+                    // For these, we'll use the direct path but from the incoming folder
+                    const incomingPath = `/pictures/incoming/${filename}`;
+                    console.log(`Trying Instagram incoming path: ${incomingPath}`);
+                    
+                    // Create a temporary image to test if this path works
+                    const testImg = new Image();
+                    testImg.onload = function() {
+                        console.log(`Instagram incoming path worked for ${filename}`);
+                        img.src = incomingPath;
+                    };
+                    testImg.onerror = function() {
+                        console.log(`Instagram incoming path failed for ${filename}, trying data URL method`);
+                        
+                        // Try direct-serve API as fallback
+                        const fullPath = `${UPLOAD_FOLDER}/${filename}`;
+                        const encodedPath = encodeURIComponent(fullPath);
+                        
+                        fetch(`/api/images/direct-serve?path=${encodedPath}`)
+                            .then(response => {
+                                if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+                                return response.blob();
+                            })
+                            .then(blob => {
+                                const objectUrl = URL.createObjectURL(blob);
+                                img.src = objectUrl;
+                                console.log(`Loaded image via direct-serve API`);
+                            })
+                            .catch(error => {
+                                console.error(`All methods failed for ${filename}: ${error.message}`);
+                                // Keep using the current path
+                            });
+                    };
+                    testImg.src = incomingPath;
+                } else {
+                    // This is a regular processed image, use data URL method
+                    const fullPath = `${PROCESSED_FOLDER}/${filename}`;
+                    const encodedPath = encodeURIComponent(fullPath);
+                    
+                    console.log(`Enhancing processed image: ${filename}`);
+                    console.log(`Full path: ${fullPath}`);
+                    
+                    // Use data URL method
+                    fetch(`/api/images/data-url?path=${encodedPath}`)
+                        .then(response => {
+                            console.log(`Data URL API response status for ${filename}: ${response.status}`);
+                            if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+                            return response.json();
+                        })
+                        .then(data => {
+                            if (data.success && data.data_url) {
+                                console.log(`Successfully loaded data URL for ${filename}`);
+                                img.src = data.data_url;
+                            } else {
+                                throw new Error(data.error || 'Failed to get data URL');
+                            }
+                        })
+                        .catch(error => {
+                            console.error(`Error loading image via data URL: ${error}`);
+                            // Keep using the current path
+                        });
+                }
+            } else {
+                console.log(`Image #${index} doesn't match any known pattern: ${originalSrc}`);
+            }
+        });
+    }
+    
+    // Expose enhanceGalleryImages function globally for the template to call
+    window.enhanceGalleryImages = enhanceGalleryImages;
+    
+    // Set up a MutationObserver to detect when new gallery items are added
+    if (galleryContainer) {
+        const observer = new MutationObserver(function(mutations) {
+            let shouldEnhance = false;
+            
+            mutations.forEach(function(mutation) {
+                if (mutation.type === 'childList' && mutation.addedNodes.length > 0) {
+                    // Check if any of the added nodes are gallery items with images
+                    mutation.addedNodes.forEach(function(node) {
+                        if (node.nodeType === 1 && (
+                            node.classList.contains('gallery-item') || 
+                            node.querySelector('.gallery-item')
+                        )) {
+                            shouldEnhance = true;
+                        }
+                    });
+                }
+            });
+            
+            if (shouldEnhance) {
+                console.log("Detected new gallery items added to DOM, enhancing images");
+                // Wait a short time for images to be fully added
+                setTimeout(enhanceGalleryImages, 300);
+            }
+        });
+        
+        // Configure and start the observer
+        observer.observe(galleryContainer, { 
+            childList: true,
+            subtree: true
+        });
+        
+        console.log("Gallery mutation observer set up");
+    }
+    
+    // Handle gallery tab click
+    document.querySelectorAll('header nav ul li a').forEach(link => {
+        link.addEventListener('click', (e) => {
+            const targetId = e.target.getAttribute('href');
+            if (targetId === '#gallery-section') {
+                console.log("Gallery tab clicked, will enhance images after display");
+                // Wait for gallery to be shown before enhancing images
+                setTimeout(enhanceGalleryImages, 500);
+            }
+        });
+    });
+    
+    // Enhance modal image display using data URL method
+    function enhanceModalImage(modalImage) {
+        if (!modalImage) return;
+        
+        const originalSrc = modalImage.getAttribute('src');
+        if (!originalSrc) return;
+        
+        console.log(`Enhancing modal image: ${originalSrc}`);
+        
+        // Check if this is an Instagram image from filename pattern
+        if (originalSrc.includes('instagram_')) {
+            const pathParts = originalSrc.split('/');
+            const filename = pathParts[pathParts.length - 1];
+            const shortcodeMatch = filename.match(/instagram_([A-Za-z0-9_-]+)\.jpg/);
+            
+            if (shortcodeMatch && shortcodeMatch[1]) {
+                const shortcode = shortcodeMatch[1];
+                console.log(`Found Instagram shortcode in modal: ${shortcode}`);
+                
+                // Use data URL method for Instagram images
+                fetch(`/api/images/data-url?shortcode=${shortcode}`)
+                    .then(response => {
+                        if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+                        return response.json();
+                    })
+                    .then(data => {
+                        if (data.success && data.data_url) {
+                            console.log(`Successfully loaded data URL for modal Instagram image`);
+                            modalImage.src = data.data_url;
+                        } else {
+                            throw new Error(data.error || 'Failed to get data URL');
+                        }
+                    })
+                    .catch(error => {
+                        console.error(`Error loading modal image via data URL: ${error.message}`);
+                        // Keep the original src
+                    });
+            }
+        } else if (originalSrc.includes('/pictures/processed/') || originalSrc.includes('/pictures/incoming/')) {
+            // This is a processed or incoming picture, extract the path
+            const pathParts = originalSrc.includes('/pictures/processed/') 
+                ? originalSrc.split('/pictures/processed/')
+                : originalSrc.split('/pictures/incoming/');
+                
+            if (pathParts.length > 1 && pathParts[1]) {
+                const filename = pathParts[1];
+                const folder = originalSrc.includes('/pictures/processed/') ? PROCESSED_FOLDER : UPLOAD_FOLDER;
+                const fullPath = `${folder}/${filename}`;
+                const encodedPath = encodeURIComponent(fullPath);
+                
+                console.log(`Enhancing modal image with path: ${fullPath}`);
+                
+                // Use data URL method
+                fetch(`/api/images/data-url?path=${encodedPath}`)
+                    .then(response => {
+                        if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+                        return response.json();
+                    })
+                    .then(data => {
+                        if (data.success && data.data_url) {
+                            console.log(`Successfully loaded data URL for modal image`);
+                            modalImage.src = data.data_url;
+                        } else {
+                            throw new Error(data.error || 'Failed to get data URL');
+                        }
+                    })
+                    .catch(error => {
+                        console.error(`Error loading modal image via data URL: ${error.message}`);
+                        // Keep the original src
+                    });
+            }
+        }
+    }
+    
+    // Export enhanceModalImage to global scope
+    window.enhanceModalImage = enhanceModalImage;
+    
+    // If gallery section is already active on page load, enhance images
+    if (document.querySelector('#gallery-section:not(.hidden-section)')) {
+        console.log("Gallery section is active on page load, enhancing images");
+        setTimeout(enhanceGalleryImages, 500);
+    }
 });

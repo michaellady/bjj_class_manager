@@ -1,0 +1,266 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Image Loading Debug</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; }
+        .test-section { margin-bottom: 30px; border: 1px solid #ccc; padding: 10px; }
+        .image-container { margin-top: 10px; }
+        .image-container img { max-width: 100%; max-height: 300px; }
+        .controls { margin-bottom: 10px; }
+        button { padding: 5px 10px; margin-right: 5px; }
+        input[type="text"] { width: 300px; padding: 5px; }
+        .result { margin-top: 10px; padding: 10px; background-color: #f0f0f0; }
+        .success { color: green; }
+        .error { color: red; }
+        .log-container { margin-top: 20px; border: 1px solid #ddd; padding: 10px; height: 200px; overflow-y: auto; font-family: monospace; background-color: #f9f9f9; }
+    </style>
+</head>
+<body>
+    <h1>Image Loading Debug</h1>
+    
+    <div class="test-section">
+        <h2>1. Standard Path Method</h2>
+        <div class="controls">
+            <input type="text" id="standard-path-input" placeholder="/pictures/processed/filename.jpg" value="/pictures/processed/placeholder.jpg">
+            <button id="load-standard-path">Load Image</button>
+        </div>
+        <div class="image-container">
+            <img id="standard-path-image" src="" alt="Standard Path Image">
+        </div>
+        <div class="result" id="standard-path-result"></div>
+    </div>
+    
+    <div class="test-section">
+        <h2>2. Direct API Endpoint Method</h2>
+        <div class="controls">
+            <input type="text" id="direct-api-input" placeholder="Full path to image file" value="/Users/mikelady/dev/class_pictures/pictures/processed/placeholder.jpg">
+            <button id="load-direct-api">Load Image</button>
+        </div>
+        <div class="image-container">
+            <img id="direct-api-image" src="" alt="Direct API Image">
+        </div>
+        <div class="result" id="direct-api-result"></div>
+    </div>
+    
+    <div class="test-section">
+        <h2>3. Data URL Method</h2>
+        <div class="controls">
+            <input type="text" id="data-url-input" placeholder="Full path to image file" value="/Users/mikelady/dev/class_pictures/pictures/processed/placeholder.jpg">
+            <button id="load-data-url">Load Image</button>
+        </div>
+        <div class="image-container">
+            <img id="data-url-image" src="" alt="Data URL Image">
+        </div>
+        <div class="result" id="data-url-result"></div>
+    </div>
+    
+    <div class="test-section">
+        <h2>4. Instagram Shortcode Test</h2>
+        <div class="controls">
+            <input type="text" id="instagram-shortcode-input" placeholder="Instagram shortcode" value="">
+            <button id="load-instagram-shortcode">Load Image</button>
+        </div>
+        <div class="image-container">
+            <img id="instagram-shortcode-image" src="" alt="Instagram Image">
+        </div>
+        <div class="result" id="instagram-shortcode-result"></div>
+    </div>
+    
+    <h2>Debug Log</h2>
+    <div class="log-container" id="log-container"></div>
+    
+    <script>
+        // Logging function
+        function log(message, isError = false) {
+            const logContainer = document.getElementById('log-container');
+            const entry = document.createElement('div');
+            entry.style.color = isError ? 'red' : 'black';
+            const timestamp = new Date().toLocaleTimeString();
+            entry.textContent = `[${timestamp}] ${message}`;
+            logContainer.appendChild(entry);
+            logContainer.scrollTop = logContainer.scrollHeight;
+            
+            // Also log to console
+            if (isError) {
+                console.error(message);
+            } else {
+                console.log(message);
+            }
+        }
+        
+        // Method 1: Standard Path
+        document.getElementById('load-standard-path').addEventListener('click', function() {
+            const path = document.getElementById('standard-path-input').value;
+            const img = document.getElementById('standard-path-image');
+            const resultDiv = document.getElementById('standard-path-result');
+            
+            log(`Loading image via standard path: ${path}`);
+            
+            // Clear previous result
+            resultDiv.innerHTML = 'Loading...';
+            resultDiv.className = 'result';
+            
+            // Set up onload and onerror handlers
+            img.onload = function() {
+                log(`Standard path image loaded successfully: ${path}`);
+                resultDiv.innerHTML = `<span class="success">✓ Image loaded successfully</span><br>Size: ${img.naturalWidth} x ${img.naturalHeight}`;
+                resultDiv.className = 'result success';
+            };
+            
+            img.onerror = function() {
+                log(`Error loading standard path image: ${path}`, true);
+                resultDiv.innerHTML = `<span class="error">✗ Error loading image</span>`;
+                resultDiv.className = 'result error';
+            };
+            
+            // Load the image
+            img.src = path;
+        });
+        
+        // Method 2: Direct API Endpoint
+        document.getElementById('load-direct-api').addEventListener('click', function() {
+            const path = document.getElementById('direct-api-input').value;
+            const img = document.getElementById('direct-api-image');
+            const resultDiv = document.getElementById('direct-api-result');
+            
+            log(`Loading image via direct API: ${path}`);
+            
+            // Clear previous result
+            resultDiv.innerHTML = 'Loading...';
+            resultDiv.className = 'result';
+            
+            // Set up onload and onerror handlers
+            img.onload = function() {
+                log(`Direct API image loaded successfully: ${path}`);
+                resultDiv.innerHTML = `<span class="success">✓ Image loaded successfully</span><br>Size: ${img.naturalWidth} x ${img.naturalHeight}`;
+                resultDiv.className = 'result success';
+            };
+            
+            img.onerror = function() {
+                log(`Error loading direct API image: ${path}`, true);
+                resultDiv.innerHTML = `<span class="error">✗ Error loading image</span>`;
+                resultDiv.className = 'result error';
+            };
+            
+            // Encode the path
+            const encodedPath = encodeURIComponent(path);
+            
+            // Load the image via API
+            img.src = `/api/images/direct-serve?path=${encodedPath}`;
+        });
+        
+        // Method 3: Data URL Method
+        document.getElementById('load-data-url').addEventListener('click', function() {
+            const path = document.getElementById('data-url-input').value;
+            const img = document.getElementById('data-url-image');
+            const resultDiv = document.getElementById('data-url-result');
+            
+            log(`Loading image via data URL: ${path}`);
+            
+            // Clear previous result
+            resultDiv.innerHTML = 'Loading...';
+            resultDiv.className = 'result';
+            
+            // Encode the path
+            const encodedPath = encodeURIComponent(path);
+            
+            // Fetch the data URL
+            fetch(`/api/images/data-url?path=${encodedPath}`)
+                .then(response => {
+                    log(`Data URL API response status: ${response.status}`);
+                    if (!response.ok) {
+                        throw new Error(`HTTP error! status: ${response.status}`);
+                    }
+                    return response.json();
+                })
+                .then(data => {
+                    log(`Data URL API response received, success: ${data.success}`);
+                    if (data.success && data.data_url) {
+                        // Load the image with the data URL
+                        img.onload = function() {
+                            log(`Data URL image loaded successfully: ${path}`);
+                            resultDiv.innerHTML = `<span class="success">✓ Image loaded successfully</span><br>Size: ${img.naturalWidth} x ${img.naturalHeight}<br>Data URL length: ${data.data_url.length} chars`;
+                            resultDiv.className = 'result success';
+                        };
+                        
+                        img.onerror = function() {
+                            log(`Error displaying data URL image`, true);
+                            resultDiv.innerHTML = `<span class="error">✗ Error displaying image from data URL</span>`;
+                            resultDiv.className = 'result error';
+                        };
+                        
+                        img.src = data.data_url;
+                    } else {
+                        throw new Error(data.error || 'Failed to get data URL');
+                    }
+                })
+                .catch(error => {
+                    log(`Error loading image via data URL: ${error}`, true);
+                    resultDiv.innerHTML = `<span class="error">✗ Error: ${error.message}</span>`;
+                    resultDiv.className = 'result error';
+                    img.src = '';
+                });
+        });
+        
+        // Method 4: Instagram Shortcode Test
+        document.getElementById('load-instagram-shortcode').addEventListener('click', function() {
+            const shortcode = document.getElementById('instagram-shortcode-input').value;
+            const img = document.getElementById('instagram-shortcode-image');
+            const resultDiv = document.getElementById('instagram-shortcode-result');
+            
+            if (!shortcode) {
+                resultDiv.innerHTML = `<span class="error">✗ Please enter an Instagram shortcode</span>`;
+                resultDiv.className = 'result error';
+                return;
+            }
+            
+            log(`Loading image via Instagram shortcode: ${shortcode}`);
+            
+            // Clear previous result
+            resultDiv.innerHTML = 'Loading...';
+            resultDiv.className = 'result';
+            
+            // Fetch the data URL
+            fetch(`/api/images/data-url?shortcode=${shortcode}`)
+                .then(response => {
+                    log(`Instagram API response status: ${response.status}`);
+                    if (!response.ok) {
+                        throw new Error(`HTTP error! status: ${response.status}`);
+                    }
+                    return response.json();
+                })
+                .then(data => {
+                    log(`Instagram API response received, success: ${data.success}`);
+                    if (data.success && data.data_url) {
+                        // Load the image with the data URL
+                        img.onload = function() {
+                            log(`Instagram image loaded successfully: ${shortcode}`);
+                            resultDiv.innerHTML = `<span class="success">✓ Image loaded successfully</span><br>Size: ${img.naturalWidth} x ${img.naturalHeight}<br>Data URL length: ${data.data_url.length} chars`;
+                            resultDiv.className = 'result success';
+                        };
+                        
+                        img.onerror = function() {
+                            log(`Error displaying Instagram image`, true);
+                            resultDiv.innerHTML = `<span class="error">✗ Error displaying image from data URL</span>`;
+                            resultDiv.className = 'result error';
+                        };
+                        
+                        img.src = data.data_url;
+                    } else {
+                        throw new Error(data.error || 'Failed to get data URL');
+                    }
+                })
+                .catch(error => {
+                    log(`Error loading image via Instagram shortcode: ${error}`, true);
+                    resultDiv.innerHTML = `<span class="error">✗ Error: ${error.message}</span>`;
+                    resultDiv.className = 'result error';
+                    img.src = '';
+                });
+        });
+        
+        // Log initial page load
+        log('Debug page loaded, ready to test image loading methods');
+    </script>
+</body>
+</html> 

@@ -283,19 +283,31 @@ def add_detection(image_id: int, person_id: Optional[str], face_crop_path: str,
         conn.close()
 
 def get_detections_for_image(image_id: int):
-    """Get all detections for a specific class image."""
+    """Get all detections for a class image."""
+    conn = get_db_connection()
+    cursor = conn.cursor()
     try:
-        conn = get_db_connection()
-        cursor = conn.cursor()
         cursor.execute("""
-        SELECT * FROM Detections 
-        WHERE class_image_id = ?
-        ORDER BY detection_id
+        SELECT 
+            d.*,
+            p.name as person_name
+        FROM Detections d
+        LEFT JOIN Persons p ON d.person_id = p.person_id
+        WHERE d.class_image_id = ?
+        ORDER BY d.detection_id
         """, (image_id,))
-        return cursor.fetchall()
+        results = cursor.fetchall()
+        if not results:
+            logger.warning(f"No detections found for image ID {image_id}")
+            return []
+        
+        # Ensure each row is a dictionary
+        return [dict(row) for row in results]
     except sqlite3.Error as e:
         logger.error(f"Error getting detections for image {image_id}: {e}")
         return []
+    finally:
+        conn.close()
 
 def get_detection_by_id(detection_id: int):
     """Retrieves a specific detection by its detection_id."""
@@ -310,9 +322,18 @@ def get_detection_by_id(detection_id: int):
     try:
         cursor.execute(sql, (detection_id,))
         detection_row = cursor.fetchone()
-        return dict(detection_row) if detection_row else None
+        
+        if detection_row:
+            # Filter out binary data
+            filtered_detection = {}
+            for key, value in detection_row.items():
+                # Skip feature_vector and other binary fields
+                if key != 'feature_vector' and not isinstance(value, bytes):
+                    filtered_detection[key] = value
+            return filtered_detection
+        return None
     except sqlite3.Error as e:
-        print(f"Database error getting detection {detection_id}: {e}")
+        logger.error(f"Database error getting detection {detection_id}: {e}")
         return None
     finally:
         conn.close()
@@ -388,7 +409,16 @@ def get_detections_for_person(person_id: str):
         WHERE d.person_id = ?
         ORDER BY ci.date_taken DESC
         """, (person_id,))
-        return cursor.fetchall()
+        results = cursor.fetchall()
+        if not results:
+            logger.warning(f"No detections found for person ID {person_id}")
+            return []
+            
+        # Ensure each row is a dictionary
+        return [dict(row) for row in results]
+    except sqlite3.Error as e:
+        logger.error(f"Error getting detections for person {person_id}: {e}")
+        return []
     finally:
         conn.close()
 

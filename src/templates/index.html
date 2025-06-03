@@ -4,46 +4,1254 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>BJJ Class Attendance</title>
-    <style>
-        body {
-            font-family: Arial, sans-serif;
-            margin: 0;
-            padding: 20px;
-        }
-        .container {
-            max-width: 800px;
-            margin: 0 auto;
-        }
-        h1 {
-            color: #333;
-        }
-    </style>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <!-- Add Font Awesome for icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
 </head>
 <body>
-    <div class="container">
-        <h1>BJJ Class Attendance System</h1>
-        <p>This is a simple test page for the BJJ Class Attendance system.</p>
-        
-        <h2>Upload a Class Photo</h2>
-        <form id="uploadForm">
-            <div>
-                <label for="imageUrl">Instagram URL:</label>
-                <input type="text" id="imageUrl" name="imageUrl" 
-                       placeholder="https://www.instagram.com/p/XXXXX/" style="width: 400px;">
+    <header>
+        <div class="container">
+            <h1>BJJ Class Attendance System</h1>
+            <nav>
+                <ul>
+                    <li><a href="#upload-section" class="active">Upload Class Photo</a></li>
+                    <li><a href="#gallery-section">Class Gallery</a></li>
+                    <li><a href="#attendance-section">Attendance History</a></li>
+                    <li><a href="#techniques-section">Technique History</a></li>
+                </ul>
+            </nav>
+        </div>
+    </header>
+
+    <main class="container">
+        <!-- Upload Section -->
+        <section id="upload-section" class="active-section">
+            <h2><i class="fas fa-upload"></i> Upload Class Photo</h2>
+            <div class="card">
+                <form id="uploadForm">
+                    <div class="form-group">
+                        <label for="imageUrl">Instagram URL:</label>
+                        <input type="text" id="imageUrl" name="imageUrl" 
+                               placeholder="https://www.instagram.com/p/XXXXX/" class="form-control">
+                        <small class="form-help">Paste the URL of the Instagram post containing the class photo</small>
+                    </div>
+                    <div class="form-group">
+                        <label for="classDate">Class Date:</label>
+                        <input type="date" id="classDate" name="classDate" class="form-control">
+                        <small class="form-help">If not specified, we'll use the date from the Instagram post</small>
+                    </div>
+                    <div class="form-group">
+                        <button type="submit" class="btn btn-primary">
+                            <i class="fas fa-cloud-upload-alt"></i> Upload & Process
+                        </button>
+                    </div>
+                </form>
             </div>
-            <div style="margin-top: 10px;">
-                <label for="classDate">Class Date:</label>
-                <input type="date" id="classDate" name="classDate">
+            
+            <div id="processingContainer" class="hidden">
+                <h3>Processing Status</h3>
+                <div class="status-container">
+                    <div id="status" class="status-message"></div>
+                    <div class="processing-steps">
+                        <div class="processing-step" id="step-instagram">
+                            <i class="fas fa-circle step-icon"></i>
+                            <span class="step-text">Fetch from Instagram</span>
+                        </div>
+                        <div class="processing-step" id="step-facedetection">
+                            <i class="fas fa-circle step-icon"></i>
+                            <span class="step-text">Detect Faces</span>
+                        </div>
+                        <div class="processing-step" id="step-recognition">
+                            <i class="fas fa-circle step-icon"></i>
+                            <span class="step-text">Recognize People</span>
+                        </div>
+                        <div class="processing-step" id="step-attendance">
+                            <i class="fas fa-circle step-icon"></i>
+                            <span class="step-text">Record Attendance</span>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="row">
+                    <div class="col">
+                        <h3>Detected Techniques</h3>
+                        <div id="techniquesContainer" class="techniques-container">
+                            <div class="technique-group">
+                                <h4>Techniques</h4>
+                                <ul id="techniquesList" class="techniques-list"></ul>
+                            </div>
+                            <div class="technique-group">
+                                <h4>Positions</h4>
+                                <ul id="positionsList" class="techniques-list"></ul>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col">
+                        <h3>Image Preview</h3>
+                        <div id="imagePreview" class="image-preview">
+                            <img id="previewImage" alt="Class photo">
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="row">
+                    <div class="col">
+                        <h3>Processing Log</h3>
+                        <div id="logBox" class="log-box"></div>
+                    </div>
+                </div>
             </div>
-            <div style="margin-top: 10px;">
-                <button type="submit">Upload</button>
+        </section>
+
+        <!-- Class Gallery Section -->
+        <section id="gallery-section" class="hidden-section">
+            <h2><i class="fas fa-images"></i> Class Picture Gallery</h2>
+            
+            <div class="card">
+                <div class="filters">
+                    <div class="form-group">
+                        <label for="galleryDateRange">Date Range:</label>
+                        <select id="galleryDateRange" class="form-control">
+                            <option value="7">Last 7 Days</option>
+                            <option value="30" selected>Last 30 Days</option>
+                            <option value="90">Last 3 Months</option>
+                            <option value="180">Last 6 Months</option>
+                            <option value="365">Last Year</option>
+                            <option value="all">All Time</option>
+                        </select>
+                    </div>
+                    <button id="applyGalleryFilters" class="btn btn-primary">Apply Filters</button>
+                </div>
             </div>
-        </form>
-        
-        <div id="status" style="margin-top: 20px;"></div>
+            
+            <div class="card">
+                <h3>Class Pictures</h3>
+                <div id="galleryContainer" class="gallery-container">
+                    <div class="loading-indicator">Loading class pictures...</div>
+                </div>
+                <div id="galleryPagination" class="pagination">
+                    <!-- Pagination controls will be added here -->
+                </div>
+            </div>
+        </section>
+
+        <!-- Attendance History Section -->
+        <section id="attendance-section" class="hidden-section">
+            <h2><i class="fas fa-clipboard-list"></i> Attendance History</h2>
+            
+            <div class="card">
+                <div class="filters">
+                    <div class="form-group">
+                        <label for="dateRange">Date Range:</label>
+                        <select id="dateRange" class="form-control">
+                            <option value="7">Last 7 Days</option>
+                            <option value="30" selected>Last 30 Days</option>
+                            <option value="90">Last 3 Months</option>
+                            <option value="180">Last 6 Months</option>
+                            <option value="365">Last Year</option>
+                            <option value="all">All Time</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label for="studentFilter">Student:</label>
+                        <select id="studentFilter" class="form-control">
+                            <option value="all">All Students</option>
+                            <!-- Will be populated dynamically -->
+                        </select>
+                    </div>
+                    <button id="applyFilters" class="btn btn-primary">Apply Filters</button>
+                </div>
+            </div>
+            
+            <div class="row">
+                <div class="col">
+                    <div class="card">
+                        <h3>Attendance Overview</h3>
+                        <div id="attendanceStats" class="stats-container">
+                            <div class="stat-card">
+                                <div class="stat-value" id="totalClasses">0</div>
+                                <div class="stat-label">Total Classes</div>
+                            </div>
+                            <div class="stat-card">
+                                <div class="stat-value" id="totalStudents">0</div>
+                                <div class="stat-label">Unique Students</div>
+                            </div>
+                            <div class="stat-card">
+                                <div class="stat-value" id="avgAttendance">0</div>
+                                <div class="stat-label">Avg. Attendance</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="col">
+                    <div class="card">
+                        <h3>Student Leaderboard</h3>
+                        <div id="leaderboard" class="leaderboard">
+                            <table>
+                                <thead>
+                                    <tr>
+                                        <th>Rank</th>
+                                        <th>Student</th>
+                                        <th>Classes</th>
+                                        <th>Attendance %</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="leaderboardBody">
+                                    <!-- Will be populated dynamically -->
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="card">
+                <h3>Class Attendance Records</h3>
+                <div id="attendanceTable" class="table-container">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Date</th>
+                                <th>Students</th>
+                                <th>Techniques</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="attendanceTableBody">
+                            <!-- Will be populated dynamically -->
+                        </tbody>
+                    </table>
+                </div>
+                <div id="pagination" class="pagination">
+                    <!-- Pagination controls -->
+                </div>
+            </div>
+            
+            <div id="imageDetailsModal" class="modal">
+                <div class="modal-content">
+                    <span class="close">&times;</span>
+                    <h3>Class Image Details</h3>
+                    <div class="modal-body">
+                        <div class="image-container">
+                            <img id="modalImage" src="" alt="Class Image">
+                        </div>
+                        <div class="details-container">
+                            <h4>Attendees</h4>
+                            <div id="modalAttendees" class="attendees-list"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Techniques History Section -->
+        <section id="techniques-section" class="hidden-section">
+            <h2><i class="fas fa-dumbbell"></i> Technique History</h2>
+            
+            <div class="card">
+                <div class="filters">
+                    <div class="form-group">
+                        <label for="techniqueFilter">Technique Type:</label>
+                        <select id="techniqueFilter" class="form-control">
+                            <option value="all">All Types</option>
+                            <option value="technique">Techniques</option>
+                            <option value="position">Positions</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label for="frequencyFilter">Sort By:</label>
+                        <select id="frequencyFilter" class="form-control">
+                            <option value="frequency">Most Frequent</option>
+                            <option value="recent">Most Recent</option>
+                            <option value="alphabetical">Alphabetical</option>
+                        </select>
+                    </div>
+                    <button id="applyTechniqueFilters" class="btn btn-primary">Apply Filters</button>
+                </div>
+            </div>
+            
+            <div class="row">
+                <div class="col">
+                    <div class="card">
+                        <h3>Technique Stats</h3>
+                        <div id="techniqueStats" class="stats-container">
+                            <div class="stat-card">
+                                <div class="stat-value" id="totalTechniques">0</div>
+                                <div class="stat-label">Unique Techniques</div>
+                            </div>
+                            <div class="stat-card">
+                                <div class="stat-value" id="topTechnique">-</div>
+                                <div class="stat-label">Most Taught</div>
+                            </div>
+                            <div class="stat-card">
+                                <div class="stat-value" id="techniqueClasses">0</div>
+                                <div class="stat-label">Classes w/ Techniques</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="col">
+                    <div class="card">
+                        <h3>Technique Distribution</h3>
+                        <div id="techniqueChart" class="chart-container">
+                            <!-- Chart will be rendered here -->
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="card">
+                <h3>Technique History</h3>
+                <div id="techniquesHistoryTable" class="table-container">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Technique</th>
+                                <th>Type</th>
+                                <th>Times Taught</th>
+                                <th>Last Taught</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="techniquesTableBody">
+                            <!-- Will be populated dynamically -->
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </section>
+    </main>
+
+    <div id="debug-panel" style="position: fixed; bottom: 0; right: 0; background: rgba(0,0,0,0.8); color: white; padding: 10px; font-family: monospace; font-size: 12px; z-index: 9999; max-height: 300px; overflow-y: auto; width: 400px;">
+        <h3 style="margin-top: 0; color: #3498db;">Debug Panel</h3>
+        <button id="toggleDebug" style="position: absolute; top: 5px; right: 5px; background: #3498db; color: white; border: none; padding: 3px 5px; cursor: pointer;">Toggle</button>
+        <div id="debug-content">
+            <h4>Section Status:</h4>
+            <div id="section-status"></div>
+            <h4>Event Log:</h4>
+            <div id="debug-log"></div>
+        </div>
+    </div>
+
+    <footer>
+        <div class="container">
+            <p>&copy; 2023 BJJ Class Attendance System</p>
+        </div>
+    </footer>
+
+    <div id="imageDetailsModal" class="modal">
+        <div class="modal-content">
+            <span class="close">&times;</span>
+            <h3>Class Image Details</h3>
+            <div class="modal-body">
+                <div class="image-container">
+                    <img id="modalImage" src="" alt="Class Image">
+                </div>
+                <div class="details-container">
+                    <h4>Attendees</h4>
+                    <div id="modalAttendees" class="attendees-list"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div id="personDetailsModal" class="modal">
+        <div class="modal-content">
+            <span class="close">&times;</span>
+            <h3>Person Details</h3>
+            <div class="modal-body">
+                <div class="loading">Loading person details...</div>
+            </div>
+        </div>
+    </div>
+
+    <div id="reassignmentModal" class="modal">
+        <div class="modal-content">
+            <span class="close">&times;</span>
+            <h3>Reassign Face Detection</h3>
+            <div class="modal-body">
+                <div class="loading">Loading...</div>
+            </div>
+        </div>
     </div>
 
     <script>
+        // Debug panel functions
+        function updateSectionStatus() {
+            const statusDiv = document.getElementById('section-status');
+            statusDiv.innerHTML = '';
+            
+            document.querySelectorAll('main section').forEach(section => {
+                const isHidden = section.classList.contains('hidden-section');
+                const isActive = section.classList.contains('active-section');
+                
+                const item = document.createElement('div');
+                item.style.marginBottom = '5px';
+                item.style.padding = '3px';
+                item.style.borderLeft = '3px solid ' + (isActive ? '#2ecc71' : '#e74c3c');
+                
+                item.innerHTML = `
+                    <strong>${section.id}</strong>: 
+                    hidden=${isHidden}, 
+                    active=${isActive}, 
+                    display=${window.getComputedStyle(section).display}
+                `;
+                
+                statusDiv.appendChild(item);
+            });
+        }
+        
+        function debugLog(message) {
+            const logDiv = document.getElementById('debug-log');
+            const entry = document.createElement('div');
+            entry.style.borderBottom = '1px solid #555';
+            entry.style.padding = '3px 0';
+            
+            const now = new Date();
+            const timestamp = now.toISOString().split('T')[1].split('.')[0];
+            
+            entry.textContent = `[${timestamp}] ${message}`;
+            logDiv.insertBefore(entry, logDiv.firstChild);
+        }
+        
+        // Toggle debug panel
+        document.getElementById('toggleDebug').addEventListener('click', function() {
+            const content = document.getElementById('debug-content');
+            content.style.display = content.style.display === 'none' ? 'block' : 'none';
+        });
+        
+        // Update section status on page load
+        updateSectionStatus();
+        debugLog('Page loaded');
+        
+        // Override nav click handlers to include debug updates
+        document.querySelectorAll('nav a').forEach(link => {
+            // Store original click handler
+            const originalClickHandler = link.onclick;
+            
+            // Replace with new handler
+            link.onclick = function(e) {
+                const targetId = this.getAttribute('href');
+                debugLog(`Clicked tab: ${this.textContent} (${targetId})`);
+                
+                e.preventDefault();
+                
+                try {
+                    // Hide all sections
+                    document.querySelectorAll('main section').forEach(section => {
+                        section.classList.remove('active-section');
+                        section.classList.add('hidden-section');
+                    });
+                    
+                    // Show target section
+                    const targetSection = document.querySelector(targetId);
+                    
+                    if (targetSection) {
+                        targetSection.classList.remove('hidden-section');
+                        targetSection.classList.add('active-section');
+                        debugLog(`Activated section: ${targetId}`);
+                        
+                        // Load data for specific sections when they become active
+                        if (targetId === '#attendance-section') {
+                            loadAttendanceHistory();
+                        } else if (targetId === '#techniques-section') {
+                            loadTechniqueHistory();
+                        } else if (targetId === '#gallery-section') {
+                            loadGallery(1);
+                        }
+                    } else {
+                        debugLog(`ERROR: Target section not found: ${targetId}`);
+                    }
+                    
+                    // Update active nav link
+                    document.querySelectorAll('nav a').forEach(navLink => {
+                        navLink.classList.remove('active');
+                    });
+                    this.classList.add('active');
+                    
+                    // Update debug panel
+                    updateSectionStatus();
+                } catch (error) {
+                    debugLog(`ERROR: ${error.message}`);
+                    console.error('Error in tab navigation:', error);
+                }
+            };
+        });
+        
+        // Console log redirection to server logs
+        const originalConsole = {
+            log: console.log,
+            error: console.error,
+            warn: console.warn,
+            info: console.info
+        };
+        
+        // Override console methods
+        console.log = function() {
+            // Call original method
+            originalConsole.log.apply(console, arguments);
+            
+            // Send to server
+            const message = Array.from(arguments).map(arg => 
+                typeof arg === 'object' ? JSON.stringify(arg) : arg
+            ).join(' ');
+            
+            fetch('/log-js', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    level: 'log',
+                    message: message
+                })
+            }).catch(err => originalConsole.error('Failed to send log to server:', err));
+        };
+        
+        console.error = function() {
+            // Call original method
+            originalConsole.error.apply(console, arguments);
+            
+            // Send to server
+            const message = Array.from(arguments).map(arg => 
+                typeof arg === 'object' ? JSON.stringify(arg) : arg
+            ).join(' ');
+            
+            fetch('/log-js', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    level: 'error',
+                    message: message
+                })
+            }).catch(err => originalConsole.error('Failed to send log to server:', err));
+        };
+        
+        // Load attendance history data
+        function loadAttendanceHistory() {
+            debugLog('Loading attendance history data');
+            
+            // Get filter values
+            const dateRange = document.getElementById('dateRange').value;
+            const studentId = document.getElementById('studentFilter').value;
+            
+            // Show loading state
+            document.getElementById('totalClasses').textContent = '...';
+            document.getElementById('totalStudents').textContent = '...';
+            document.getElementById('avgAttendance').textContent = '...';
+            document.getElementById('leaderboardBody').innerHTML = '<tr><td colspan="4">Loading...</td></tr>';
+            document.getElementById('attendanceTableBody').innerHTML = '<tr><td colspan="4">Loading...</td></tr>';
+            
+            // Fetch attendance history data
+            fetch(`/api/attendance/history?days=${dateRange}&student_id=${studentId}`)
+                .then(response => {
+                    if (!response.ok) {
+                        throw new Error(`Server responded with status: ${response.status}`);
+                    }
+                    return response.json();
+                })
+                .then(data => {
+                    debugLog('Attendance history data loaded successfully');
+                    
+                    if (data.success) {
+                        // Update stats
+                        document.getElementById('totalClasses').textContent = data.stats.total_classes;
+                        document.getElementById('totalStudents').textContent = data.stats.total_students;
+                        document.getElementById('avgAttendance').textContent = data.stats.avg_attendance;
+                        
+                        // Update leaderboard
+                        updateLeaderboard(data.leaderboard);
+                        
+                        // Update attendance records table
+                        updateAttendanceTable(data.attendance_records);
+                        
+                        // Also load students for the filter
+                        loadStudentsForFilter();
+                    } else {
+                        console.error('Error loading attendance history:', data.error);
+                        debugLog(`Error loading attendance history: ${data.error}`);
+                    }
+                })
+                .catch(error => {
+                    console.error('Error fetching attendance history:', error);
+                    debugLog(`Error fetching attendance history: ${error.message}`);
+                    
+                    // Show error state
+                    document.getElementById('totalClasses').textContent = 'Error';
+                    document.getElementById('totalStudents').textContent = 'Error';
+                    document.getElementById('avgAttendance').textContent = 'Error';
+                    document.getElementById('leaderboardBody').innerHTML = '<tr><td colspan="4">Error loading data</td></tr>';
+                    document.getElementById('attendanceTableBody').innerHTML = '<tr><td colspan="4">Error loading data</td></tr>';
+                });
+        }
+        
+        function updateLeaderboard(leaderboardData) {
+            const leaderboardBody = document.getElementById('leaderboardBody');
+            leaderboardBody.innerHTML = '';
+            
+            if (leaderboardData.length === 0) {
+                leaderboardBody.innerHTML = '<tr><td colspan="4">No data available</td></tr>';
+                return;
+            }
+            
+            leaderboardData.forEach((student, index) => {
+                const row = document.createElement('tr');
+                row.innerHTML = `
+                    <td>${index + 1}</td>
+                    <td><a href="#" data-person-id="${student.person_id}" class="person-link">${student.name || 'Unknown'}</a></td>
+                    <td>${student.classes_attended}</td>
+                    <td>${student.attendance_percentage.toFixed(1)}%</td>
+                `;
+                leaderboardBody.appendChild(row);
+            });
+            
+            // Add click handlers for person links
+            document.querySelectorAll('.person-link').forEach(link => {
+                link.addEventListener('click', function(e) {
+                    e.preventDefault();
+                    const personId = this.getAttribute('data-person-id');
+                    openPersonDetails(personId);
+                });
+            });
+        }
+        
+        function updateAttendanceTable(records) {
+            const tableBody = document.getElementById('attendanceTableBody');
+            tableBody.innerHTML = '';
+            
+            if (records.length === 0) {
+                tableBody.innerHTML = '<tr><td colspan="4">No records found</td></tr>';
+                return;
+            }
+            
+            records.forEach(record => {
+                // Format date
+                const date = new Date(record.date_taken);
+                const formattedDate = date.toLocaleDateString();
+                
+                // Format techniques
+                let techniquesHtml = '';
+                if (record.techniques && record.techniques.length > 0) {
+                    const techniques = record.techniques.map(t => t.name).join(', ');
+                    techniquesHtml = `<span class="techniques-tag">${techniques}</span>`;
+                } else {
+                    techniquesHtml = '<span class="techniques-tag empty">None recorded</span>';
+                }
+                
+                const row = document.createElement('tr');
+                row.innerHTML = `
+                    <td>${formattedDate}</td>
+                    <td>${record.attendees} students</td>
+                    <td>${techniquesHtml}</td>
+                    <td>
+                        <button class="btn btn-sm view-details" data-image-id="${record.class_image_id}">
+                            <i class="fas fa-eye"></i> View
+                        </button>
+                    </td>
+                `;
+                tableBody.appendChild(row);
+            });
+            
+            // Add click handlers for view details buttons
+            document.querySelectorAll('.view-details').forEach(button => {
+                button.addEventListener('click', function() {
+                    const imageId = this.getAttribute('data-image-id');
+                    openClassImageDetails(imageId);
+                });
+            });
+        }
+        
+        function loadStudentsForFilter() {
+            fetch('/api/persons')
+                .then(response => {
+                    if (!response.ok) {
+                        throw new Error(`Server responded with status: ${response.status}`);
+                    }
+                    return response.json();
+                })
+                .then(data => {
+                    if (data.success) {
+                        const studentFilter = document.getElementById('studentFilter');
+                        
+                        // Clear all options except the first one
+                        while (studentFilter.options.length > 1) {
+                            studentFilter.remove(1);
+                        }
+                        
+                        // Add students to filter
+                        data.persons.forEach(person => {
+                            const option = document.createElement('option');
+                            option.value = person.person_id;
+                            option.textContent = person.name || 'Unknown Person';
+                            studentFilter.appendChild(option);
+                        });
+                    }
+                })
+                .catch(error => {
+                    console.error('Error loading students for filter:', error);
+                });
+        }
+        
+        function openClassImageDetails(imageId) {
+            debugLog(`Opening class image details for image ID: ${imageId}`);
+            
+            // Show loading state in modal
+            const modal = document.getElementById('imageDetailsModal');
+            const modalBody = modal.querySelector('.modal-body');
+            modalBody.innerHTML = '<div class="loading">Loading image details...</div>';
+            
+            // Show the modal
+            modal.style.display = 'block';
+            
+            // Fetch image details
+            fetch(`/api/class-images/${imageId}`)
+                .then(response => {
+                    if (!response.ok) {
+                        throw new Error(`Server responded with status: ${response.status}`);
+                    }
+                    return response.json();
+                })
+                .then(data => {
+                    if (data.success) {
+                        // Choose the best available image source
+                        let imgSrc = '/pictures/processed/placeholder.jpg';
+                        
+                        // Priority: Instagram shortcode > filepath_processed > original_filename
+                        if (data.image.instagram_shortcode) {
+                            imgSrc = `/pictures/incoming/instagram_${data.image.instagram_shortcode}.jpg`;
+                        } else if (data.image.filepath_processed) {
+                            // Extract filename from full path
+                            const filename = data.image.filepath_processed.split('/').pop();
+                            imgSrc = `/pictures/processed/${filename}`;
+                        } else if (data.image.original_filename) {
+                            imgSrc = `/pictures/incoming/${data.image.original_filename}`;
+                        }
+                        
+                        // Update modal content
+                        modalBody.innerHTML = `
+                            <div class="image-container">
+                                <img id="modalImage" src="${imgSrc}" alt="Class Image" 
+                                     onerror="this.onerror=null; this.src='/pictures/processed/placeholder.jpg';">
+                            </div>
+                            <div class="details-container">
+                                <h4>Class Details</h4>
+                                <p><strong>Date:</strong> ${new Date(data.image.date_taken).toLocaleDateString()}</p>
+                                <p><strong>Attendees:</strong> ${data.total_attendees} students</p>
+                                
+                                <h4>Attendees</h4>
+                                <div id="modalAttendees" class="attendees-list"></div>
+                            </div>
+                        `;
+                        
+                        // Add attendees
+                        const attendeesList = document.getElementById('modalAttendees');
+                        data.attendees.forEach(person => {
+                            const personDiv = document.createElement('div');
+                            personDiv.className = 'attendee-item';
+                            
+                            personDiv.innerHTML = `
+                                <div class="attendee-header">
+                                    <span class="attendee-name">${person.name || 'Unknown'}</span>
+                                    <span class="attendee-count">${person.detections.length} detection(s)</span>
+                                </div>
+                                <div class="attendee-faces"></div>
+                            `;
+                            
+                            // Add face detections
+                            const facesDiv = personDiv.querySelector('.attendee-faces');
+                            person.detections.forEach(detection => {
+                                const faceDiv = document.createElement('div');
+                                faceDiv.className = 'face-item';
+                                faceDiv.innerHTML = `
+                                    <img src="/data/face_crops/${detection.face_crop_path.split('/').pop()}" alt="Face Detection">
+                                    <div class="face-actions">
+                                        <button class="btn btn-sm reassign-face" data-detection-id="${detection.detection_id}">
+                                            <i class="fas fa-exchange-alt"></i> Reassign
+                                        </button>
+                                    </div>
+                                `;
+                                facesDiv.appendChild(faceDiv);
+                            });
+                            
+                            attendeesList.appendChild(personDiv);
+                        });
+                        
+                        // Add click handlers for reassign buttons
+                        document.querySelectorAll('.reassign-face').forEach(button => {
+                            button.addEventListener('click', function() {
+                                const detectionId = this.getAttribute('data-detection-id');
+                                openReassignmentDialog(detectionId);
+                            });
+                        });
+                        
+                        // Apply data URL enhancement to the modal image
+                        if (window.enhanceModalImage && document.getElementById('modalImage')) {
+                            setTimeout(() => {
+                                window.enhanceModalImage(document.getElementById('modalImage'));
+                            }, 300);
+                        }
+                    } else {
+                        modalBody.innerHTML = `<div class="error">Error loading image details: ${data.error}</div>`;
+                    }
+                })
+                .catch(error => {
+                    console.error('Error fetching image details:', error);
+                    modalBody.innerHTML = `<div class="error">Error loading image details: ${error.message}</div>`;
+                });
+        }
+        
+        function openPersonDetails(personId) {
+            debugLog(`Opening person details for person ID: ${personId}`);
+            
+            // Show loading state in modal
+            const modal = document.getElementById('personDetailsModal');
+            const modalBody = modal.querySelector('.modal-body');
+            modalBody.innerHTML = '<div class="loading">Loading person details...</div>';
+            
+            // Show the modal
+            modal.style.display = 'block';
+            
+            // Fetch person details
+            fetch(`/api/persons/${personId}`)
+                .then(response => {
+                    if (!response.ok) {
+                        throw new Error(`Server responded with status: ${response.status}`);
+                    }
+                    return response.json();
+                })
+                .then(data => {
+                    if (data.success) {
+                        // Format classes attended
+                        const classesHtml = data.classes_attended.map(cls => {
+                            const date = new Date(cls.date_taken).toLocaleDateString();
+                            return `<div class="class-item">
+                                <span class="class-date">${date}</span>
+                                <a href="#" class="class-link" data-image-id="${cls.class_image_id}">View Class</a>
+                            </div>`;
+                        }).join('');
+                        
+                        // Update modal content
+                        modalBody.innerHTML = `
+                            <div class="person-info">
+                                <h4>
+                                    <span id="personName">${data.person.name || 'Unknown'}</span>
+                                    <button id="editNameBtn" class="btn btn-sm">
+                                        <i class="fas fa-edit"></i> Edit
+                                    </button>
+                                </h4>
+                                <p><strong>Total Classes:</strong> ${data.total_classes}</p>
+                                <p><strong>Total Detections:</strong> ${data.total_detections}</p>
+                            </div>
+                            
+                            <div class="person-tabs">
+                                <div class="tab-links">
+                                    <a href="#classes-tab" class="tab-link active">Classes Attended</a>
+                                    <a href="#faces-tab" class="tab-link">Face Detections</a>
+                                </div>
+                                
+                                <div id="classes-tab" class="tab-content active-tab">
+                                    <h4>Classes Attended</h4>
+                                    <div class="classes-list">
+                                        ${classesHtml || '<p>No classes attended</p>'}
+                                    </div>
+                                </div>
+                                
+                                <div id="faces-tab" class="tab-content">
+                                    <h4>Face Detections</h4>
+                                    <div class="faces-grid"></div>
+                                </div>
+                            </div>
+                        `;
+                        
+                        // Add click handlers for class links
+                        document.querySelectorAll('.class-link').forEach(link => {
+                            link.addEventListener('click', function(e) {
+                                e.preventDefault();
+                                const imageId = this.getAttribute('data-image-id');
+                                // Close person modal
+                                modal.style.display = 'none';
+                                // Open class image details
+                                openClassImageDetails(imageId);
+                            });
+                        });
+                        
+                        // Add click handler for edit name button
+                        document.getElementById('editNameBtn').addEventListener('click', function() {
+                            const currentName = data.person.name || '';
+                            const newName = prompt('Enter a new name for this person:', currentName);
+                            
+                            if (newName !== null && newName !== currentName) {
+                                updatePersonName(personId, newName);
+                            }
+                        });
+                        
+                        // Handle tab navigation
+                        document.querySelectorAll('.tab-link').forEach(link => {
+                            link.addEventListener('click', function(e) {
+                                e.preventDefault();
+                                
+                                // Hide all tab contents and deactivate all tab links
+                                document.querySelectorAll('.tab-content').forEach(tab => {
+                                    tab.classList.remove('active-tab');
+                                });
+                                document.querySelectorAll('.tab-link').forEach(tabLink => {
+                                    tabLink.classList.remove('active');
+                                });
+                                
+                                // Show selected tab content and activate tab link
+                                const targetId = this.getAttribute('href');
+                                document.querySelector(targetId).classList.add('active-tab');
+                                this.classList.add('active');
+                                
+                                // If faces tab is selected, load faces
+                                if (targetId === '#faces-tab') {
+                                    const facesGrid = document.querySelector('.faces-grid');
+                                    facesGrid.innerHTML = '';
+                                    
+                                    // Group detections by class for organization
+                                    Object.entries(data.detection_by_class).forEach(([classId, detections]) => {
+                                        const classDate = data.classes_attended.find(c => c.class_image_id == classId)?.date_taken;
+                                        const formattedDate = classDate ? new Date(classDate).toLocaleDateString() : 'Unknown Date';
+                                        
+                                        const classSection = document.createElement('div');
+                                        classSection.className = 'detection-class-group';
+                                        classSection.innerHTML = `
+                                            <h5>Class: ${formattedDate}</h5>
+                                            <div class="detection-faces"></div>
+                                        `;
+                                        
+                                        const facesContainer = classSection.querySelector('.detection-faces');
+                                        
+                                        detections.forEach(detection => {
+                                            const faceDiv = document.createElement('div');
+                                            faceDiv.className = 'face-item';
+                                            faceDiv.innerHTML = `
+                                                <img src="/data/face_crops/${detection.face_crop_path.split('/').pop()}" alt="Face Detection">
+                                                <div class="face-info">
+                                                    <span class="face-confidence">Confidence: ${(detection.recognition_confidence * 100).toFixed(1)}%</span>
+                                                </div>
+                                                <div class="face-actions">
+                                                    <button class="btn btn-sm reassign-face" data-detection-id="${detection.detection_id}">
+                                                        <i class="fas fa-exchange-alt"></i> Reassign
+                                                    </button>
+                                                </div>
+                                            `;
+                                            facesContainer.appendChild(faceDiv);
+                                        });
+                                        
+                                        facesGrid.appendChild(classSection);
+                                    });
+                                    
+                                    // Add click handlers for reassign buttons
+                                    document.querySelectorAll('.reassign-face').forEach(button => {
+                                        button.addEventListener('click', function() {
+                                            const detectionId = this.getAttribute('data-detection-id');
+                                            openReassignmentDialog(detectionId);
+                                        });
+                                    });
+                                }
+                            });
+                        });
+                        
+                    } else {
+                        modalBody.innerHTML = `<div class="error">Error loading person details: ${data.error}</div>`;
+                    }
+                })
+                .catch(error => {
+                    console.error('Error fetching person details:', error);
+                    modalBody.innerHTML = `<div class="error">Error loading person details: ${error.message}</div>`;
+                });
+        }
+        
+        function updatePersonName(personId, newName) {
+            fetch(`/api/persons/${personId}/update-name`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    name: newName
+                })
+            })
+            .then(response => {
+                if (!response.ok) {
+                    throw new Error(`Server responded with status: ${response.status}`);
+                }
+                return response.json();
+            })
+            .then(data => {
+                if (data.success) {
+                    // Update name in the UI
+                    document.getElementById('personName').textContent = newName;
+                    debugLog(`Updated person ${personId} name to: ${newName}`);
+                    
+                    // Reload attendance history to reflect changes
+                    loadAttendanceHistory();
+                } else {
+                    console.error('Error updating person name:', data.error);
+                    alert(`Error updating name: ${data.error}`);
+                }
+            })
+            .catch(error => {
+                console.error('Error updating person name:', error);
+                alert(`Error updating name: ${error.message}`);
+            });
+        }
+        
+        function openReassignmentDialog(detectionId) {
+            debugLog(`Opening reassignment dialog for detection ID: ${detectionId}`);
+            
+            // Show loading state in modal
+            const modal = document.getElementById('reassignmentModal');
+            const modalBody = modal.querySelector('.modal-body');
+            modalBody.innerHTML = '<div class="loading">Loading available persons...</div>';
+            
+            // Show the modal
+            modal.style.display = 'block';
+            
+            // First, get the detection details
+            fetch(`/api/detections/${detectionId}`)
+                .then(response => {
+                    if (!response.ok) {
+                        throw new Error(`Server responded with status: ${response.status}`);
+                    }
+                    return response.json();
+                })
+                .then(detectionData => {
+                    // Then get all persons for the reassignment list
+                    return fetch('/api/persons')
+                        .then(response => {
+                            if (!response.ok) {
+                                throw new Error(`Server responded with status: ${response.status}`);
+                            }
+                            return response.json();
+                        })
+                        .then(personsData => {
+                            return { detection: detectionData, persons: personsData };
+                        });
+                })
+                .then(data => {
+                    if (data.detection && data.persons.success) {
+                        const detection = data.detection;
+                        const persons = data.persons.persons;
+                        
+                        // Create the reassignment UI
+                        modalBody.innerHTML = `
+                            <div class="reassignment-content">
+                                <div class="detection-preview">
+                                    <img src="/data/face_crops/${detection.face_crop_path.split('/').pop()}" alt="Face Detection">
+                                    <div class="detection-info">
+                                        <p><strong>Current Person:</strong> ${detection.person_name || 'Unknown'}</p>
+                                        <p><strong>Confidence:</strong> ${(detection.recognition_confidence * 100).toFixed(1)}%</p>
+                                    </div>
+                                </div>
+                                
+                                <div class="reassignment-options">
+                                    <h4>Reassign To:</h4>
+                                    <div class="form-group">
+                                        <select id="personSelect" class="form-control">
+                                            <option value="">-- Select Person --</option>
+                                            ${persons.map(person => 
+                                                `<option value="${person.person_id}" ${person.person_id === detection.person_id ? 'selected' : ''}>${person.name || 'Unknown'}</option>`
+                                            ).join('')}
+                                        </select>
+                                    </div>
+                                    
+                                    <div class="form-group">
+                                        <label>
+                                            <input type="checkbox" id="createNewPerson"> Create New Person
+                                        </label>
+                                    </div>
+                                    
+                                    <div id="newPersonNameGroup" class="form-group hidden">
+                                        <label for="newPersonName">New Person Name:</label>
+                                        <input type="text" id="newPersonName" class="form-control" placeholder="Enter name">
+                                    </div>
+                                    
+                                    <div class="form-group">
+                                        <button id="saveReassignment" class="btn btn-primary">
+                                            <i class="fas fa-save"></i> Save
+                                        </button>
+                                        <button id="cancelReassignment" class="btn">
+                                            Cancel
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                        `;
+                        
+                        // Add event listeners
+                        document.getElementById('createNewPerson').addEventListener('change', function() {
+                            const newPersonNameGroup = document.getElementById('newPersonNameGroup');
+                            const personSelect = document.getElementById('personSelect');
+                            
+                            if (this.checked) {
+                                newPersonNameGroup.classList.remove('hidden');
+                                personSelect.disabled = true;
+                            } else {
+                                newPersonNameGroup.classList.add('hidden');
+                                personSelect.disabled = false;
+                            }
+                        });
+                        
+                        document.getElementById('saveReassignment').addEventListener('click', function() {
+                            const createNew = document.getElementById('createNewPerson').checked;
+                            let personId, name;
+                            
+                            if (createNew) {
+                                name = document.getElementById('newPersonName').value.trim();
+                                if (!name) {
+                                    alert('Please enter a name for the new person');
+                                    return;
+                                }
+                                personId = null; // Will be generated by the server
+                            } else {
+                                personId = document.getElementById('personSelect').value;
+                                if (!personId) {
+                                    alert('Please select a person');
+                                    return;
+                                }
+                            }
+                            
+                            saveReassignment(detectionId, personId, createNew, name);
+                        });
+                        
+                        document.getElementById('cancelReassignment').addEventListener('click', function() {
+                            modal.style.display = 'none';
+                        });
+                    } else {
+                        modalBody.innerHTML = `<div class="error">Error loading data for reassignment</div>`;
+                    }
+                })
+                .catch(error => {
+                    console.error('Error preparing reassignment dialog:', error);
+                    modalBody.innerHTML = `<div class="error">Error: ${error.message}</div>`;
+                });
+        }
+        
+        function saveReassignment(detectionId, personId, isNewPerson, newPersonName) {
+            const data = {
+                person_id: personId,
+                is_new_person: isNewPerson
+            };
+            
+            if (isNewPerson) {
+                data.name = newPersonName;
+            }
+            
+            fetch(`/api/detections/${detectionId}/reassign`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify(data)
+            })
+            .then(response => {
+                if (!response.ok) {
+                    throw new Error(`Server responded with status: ${response.status}`);
+                }
+                return response.json();
+            })
+            .then(data => {
+                if (data.success) {
+                    debugLog(`Successfully reassigned detection ${detectionId} to person ${data.new_person_id}`);
+                    
+                    // Close the modal
+                    document.getElementById('reassignmentModal').style.display = 'none';
+                    
+                    // If a class image details modal is open, refresh it
+                    if (document.getElementById('imageDetailsModal').style.display === 'block') {
+                        // Extract current image ID from some element in the UI and refresh
+                        const currentImageId = document.querySelector('.view-details').getAttribute('data-image-id');
+                        if (currentImageId) {
+                            openClassImageDetails(currentImageId);
+                        }
+                    }
+                    
+                    // Reload attendance history to reflect changes
+                    loadAttendanceHistory();
+                } else {
+                    console.error('Error reassigning detection:', data.error);
+                    alert(`Error reassigning detection: ${data.error}`);
+                }
+            })
+            .catch(error => {
+                console.error('Error reassigning detection:', error);
+                alert(`Error reassigning detection: ${error.message}`);
+            });
+        }
+        
+        // Close all modals when clicking on their close buttons
+        document.querySelectorAll('.modal .close').forEach(closeBtn => {
+            closeBtn.addEventListener('click', function() {
+                this.closest('.modal').style.display = 'none';
+            });
+        });
+        
+        // Close modals when clicking outside of the modal content
+        window.addEventListener('click', function(event) {
+            document.querySelectorAll('.modal').forEach(modal => {
+                if (event.target === modal) {
+                    modal.style.display = 'none';
+                }
+            });
+        });
+        
+        // Log function to add entries to the log box
+        function log(message, type = 'info') {
+            const logBox = document.getElementById('logBox');
+            const entry = document.createElement('div');
+            entry.className = `log-entry log-${type}`;
+            
+            // Add timestamp
+            const now = new Date();
+            const timestamp = now.toISOString().split('T')[1].split('.')[0];
+            
+            entry.textContent = `[${timestamp}] ${message}`;
+            logBox.appendChild(entry);
+            
+            // Auto-scroll to bottom
+            logBox.scrollTop = logBox.scrollHeight;
+        }
+        
+        // Update processing step status
+        function updateStep(stepId, status, message = '') {
+            const step = document.getElementById(`step-${stepId}`);
+            if (!step) return;
+            
+            step.className = `processing-step ${status}`;
+            
+            // Update icon based on status
+            const icon = step.querySelector('.step-icon');
+            if (icon) {
+                icon.className = 'fas step-icon';
+                if (status === 'complete') {
+                    icon.classList.add('fa-check-circle');
+                } else if (status === 'error') {
+                    icon.classList.add('fa-times-circle');
+                } else if (status === 'in-progress') {
+                    icon.classList.add('fa-spinner');
+                    icon.classList.add('fa-spin');
+                } else {
+                    icon.classList.add('fa-circle');
+                }
+            }
+            
+            // Add message if provided
+            if (message) {
+                const textEl = step.querySelector('.step-text');
+                if (textEl) {
+                    textEl.textContent = message;
+                }
+            }
+        }
+        
+        // Log page load to verify JS is running
+        console.log('Page loaded, sections found:', document.querySelectorAll('main section').length);
+        
+        // Upload form submission
         document.getElementById('uploadForm').addEventListener('submit', function(e) {
             e.preventDefault();
             
@@ -55,28 +1263,463 @@
                 return;
             }
             
-            const statusDiv = document.getElementById('status');
-            statusDiv.innerHTML = 'Uploading...';
+            // Show processing container
+            document.getElementById('processingContainer').classList.remove('hidden');
             
+            // Clear previous logs and reset processing steps
+            document.getElementById('logBox').innerHTML = '';
+            document.querySelectorAll('.processing-step').forEach(step => {
+                step.className = 'processing-step';
+                const icon = step.querySelector('.step-icon');
+                if (icon) icon.className = 'fas fa-circle step-icon';
+            });
+            
+            // Clear techniques lists
+            document.getElementById('techniquesList').innerHTML = '';
+            document.getElementById('positionsList').innerHTML = '';
+            
+            // Update status
+            const statusDiv = document.getElementById('status');
+            statusDiv.innerHTML = '<p>Uploading and processing image...</p>';
+            statusDiv.className = 'status-message status-processing';
+            
+            // Log start of process
+            log(`Starting upload process for URL: ${imageUrl}`, 'info');
+            log(`Class date: ${classDate || 'Not specified (using Instagram post date)'}`, 'info');
+            
+            // Check if it's an Instagram URL
+            if (imageUrl.includes('instagram.com')) {
+                log('Detected Instagram URL, preparing to fetch image...', 'info');
+            } else {
+                log('Warning: Not an Instagram URL. Only Instagram URLs are supported.', 'warning');
+                statusDiv.innerHTML = '<p>Error: Only Instagram URLs are supported at this time.</p>';
+                statusDiv.className = 'status-message status-error';
+                return;
+            }
+            
+            // Update Instagram step to in-progress
+            updateStep('instagram', 'in-progress', 'Fetching from Instagram...');
+            
+            // Prepare form data
             const formData = new FormData();
             formData.append('image_url', imageUrl);
-            formData.append('date', classDate || new Date().toISOString());
+            formData.append('date', classDate || '');
             
+            log('Sending upload request to server...', 'info');
+            
+            // Record start time for performance measurement
+            const startTime = new Date().getTime();
+            
+            // Make API request
             fetch('/api/images/upload', {
                 method: 'POST',
                 body: formData
             })
-            .then(response => response.json())
+            .then(response => {
+                const endTime = new Date().getTime();
+                const duration = (endTime - startTime) / 1000;
+                
+                log(`Server responded in ${duration.toFixed(2)}s with status: ${response.status}`, 'info');
+                
+                if (!response.ok) {
+                    throw new Error(`Server responded with status: ${response.status}`);
+                }
+                
+                return response.json();
+            })
             .then(data => {
                 if (data.success) {
-                    statusDiv.innerHTML = `Upload successful! Image ID: ${data.image_id}`;
+                    log(`Upload successful! Image ID: ${data.image_id}`, 'success');
+                    log(`Processing time: ${data.processing_time ? data.processing_time.toFixed(2) + 's' : 'unknown'}`, 'info');
+                    
+                    statusDiv.innerHTML = `
+                        <p>Upload and processing successful!</p>
+                        <p>Image ID: ${data.image_id}</p>
+                        <p>${data.num_persons_detected} people detected in the image.</p>
+                    `;
+                    statusDiv.className = 'status-message status-success';
+                    
+                    // Update steps
+                    updateStep('instagram', 'complete', 'Fetched successfully');
+                    updateStep('facedetection', 'complete', `Found ${data.num_persons_detected} faces`);
+                    updateStep('recognition', 'complete', `Recognized ${data.num_persons_detected} people`);
+                    updateStep('attendance', 'complete', `${data.num_persons_detected} people recorded`);
+                    
+                    // Display techniques if available
+                    if (data.techniques_extracted && data.techniques_extracted.techniques) {
+                        const techniquesList = document.getElementById('techniquesList');
+                        const positionsList = document.getElementById('positionsList');
+                        
+                        // Clear lists
+                        techniquesList.innerHTML = '';
+                        positionsList.innerHTML = '';
+                        
+                        // Add techniques
+                        data.techniques_extracted.techniques.forEach(technique => {
+                            const li = document.createElement('li');
+                            li.textContent = technique;
+                            techniquesList.appendChild(li);
+                        });
+                        
+                        // Add positions
+                        data.techniques_extracted.positions.forEach(position => {
+                            const li = document.createElement('li');
+                            li.textContent = position;
+                            positionsList.appendChild(li);
+                        });
+                        
+                        log(`Extracted ${data.techniques_extracted.techniques.length} techniques and ${data.techniques_extracted.positions.length} positions from the caption`, 'info');
+                    } else {
+                        log('No techniques extracted from caption', 'info');
+                    }
+                    
+                    // Display image preview (would be actual image in production)
+                    document.getElementById('imagePreview').style.display = 'block';
+                    document.getElementById('previewImage').src = 'https://via.placeholder.com/800x450?text=BJJ+Class+Photo';
+                    
                 } else {
-                    statusDiv.innerHTML = `Error: ${data.error || 'Unknown error'}`;
+                    log(`Error: ${data.error || 'Unknown error'}`, 'error');
+                    statusDiv.innerHTML = `<p>Error: ${data.error || 'Unknown error'}</p>`;
+                    statusDiv.className = 'status-message status-error';
+                    
+                    // Update steps to show error
+                    updateStep('instagram', 'error', 'Failed');
                 }
             })
             .catch(error => {
-                statusDiv.innerHTML = `Error: ${error.message}`;
+                log(`Error: ${error.message}`, 'error');
+                statusDiv.innerHTML = `<p>Error: ${error.message}</p>`;
+                statusDiv.className = 'status-message status-error';
+                updateStep('instagram', 'error', 'Failed');
             });
+        });
+
+        // Add event listener for apply filters button
+        document.getElementById('applyFilters').addEventListener('click', function() {
+            loadAttendanceHistory();
+        });
+
+        // Load technique history data
+        function loadTechniqueHistory() {
+            debugLog('Loading technique history data');
+            
+            // Get filter values
+            const techniqueType = document.getElementById('techniqueFilter').value;
+            const sortBy = document.getElementById('frequencyFilter').value;
+            const dateRange = document.getElementById('dateRange').value;
+            
+            // Show loading state
+            document.getElementById('totalTechniques').textContent = '...';
+            document.getElementById('topTechnique').textContent = '...';
+            document.getElementById('techniqueClasses').textContent = '...';
+            document.getElementById('techniquesTableBody').innerHTML = '<tr><td colspan="5">Loading...</td></tr>';
+            
+            // Fetch technique history data
+            fetch(`/api/techniques/history?days=${dateRange}&category=${techniqueType}&sort_by=${sortBy}`)
+                .then(response => {
+                    if (!response.ok) {
+                        throw new Error(`Server responded with status: ${response.status}`);
+                    }
+                    return response.json();
+                })
+                .then(data => {
+                    debugLog('Technique history data loaded successfully');
+                    
+                    if (data.success) {
+                        // Update stats
+                        document.getElementById('totalTechniques').textContent = data.stats.total_techniques;
+                        document.getElementById('topTechnique').textContent = data.stats.top_technique;
+                        document.getElementById('techniqueClasses').textContent = data.stats.classes_with_techniques;
+                        
+                        // Update techniques table
+                        updateTechniquesTable(data.techniques);
+                        
+                        // TODO: Update chart visualization if needed
+                    } else {
+                        console.error('Error loading technique history:', data.error);
+                        debugLog(`Error loading technique history: ${data.error}`);
+                    }
+                })
+                .catch(error => {
+                    console.error('Error fetching technique history:', error);
+                    debugLog(`Error fetching technique history: ${error.message}`);
+                    
+                    // Show error state
+                    document.getElementById('totalTechniques').textContent = 'Error';
+                    document.getElementById('topTechnique').textContent = 'Error';
+                    document.getElementById('techniqueClasses').textContent = 'Error';
+                    document.getElementById('techniquesTableBody').innerHTML = '<tr><td colspan="5">Error loading data</td></tr>';
+                });
+        }
+        
+        function updateTechniquesTable(techniques) {
+            const tableBody = document.getElementById('techniquesTableBody');
+            tableBody.innerHTML = '';
+            
+            if (techniques.length === 0) {
+                tableBody.innerHTML = '<tr><td colspan="5">No techniques found</td></tr>';
+                return;
+            }
+            
+            techniques.forEach(technique => {
+                // Format date
+                const lastTaught = new Date(technique.last_taught).toLocaleDateString();
+                
+                const row = document.createElement('tr');
+                row.innerHTML = `
+                    <td>${technique.name}</td>
+                    <td>${technique.category}</td>
+                    <td>${technique.frequency}</td>
+                    <td>${lastTaught}</td>
+                    <td>
+                        <button class="btn btn-sm">
+                            <i class="fas fa-list"></i> Classes
+                        </button>
+                    </td>
+                `;
+                tableBody.appendChild(row);
+            });
+        }
+
+        // Add event listener for technique filter button
+        document.getElementById('applyTechniqueFilters').addEventListener('click', function() {
+            loadTechniqueHistory();
+        });
+
+        // Load gallery data
+        function loadGallery(page = 1) {
+            const galleryContainer = document.getElementById('galleryContainer');
+            galleryContainer.innerHTML = '<div class="loading-indicator">Loading class pictures...</div>';
+            
+            const dateRange = document.getElementById('galleryDateRange').value;
+            
+            fetch(`/api/class-images?days=${dateRange}&page=${page}&per_page=12`)
+                .then(response => {
+                    if (!response.ok) {
+                        throw new Error(`Server responded with status: ${response.status}`);
+                    }
+                    return response.json();
+                })
+                .then(data => {
+                    if (data.success) {
+                        galleryContainer.innerHTML = '';
+                        
+                        if (!data.images || data.images.length === 0) {
+                            galleryContainer.innerHTML = '<div class="empty-message">No class pictures found in the selected date range.</div>';
+                            return;
+                        }
+                        
+                        data.images.forEach(image => {
+                            const date = new Date(image.date_taken).toLocaleDateString();
+                            
+                            const galleryItem = document.createElement('div');
+                            galleryItem.className = 'gallery-item';
+                            galleryItem.setAttribute('data-image-id', image.class_image_id);
+                            
+                            // Extract filename from filepath, handling both full paths and relative paths
+                            let filename = null;
+                            if (image.filepath_processed) {
+                                // Handle both full and relative paths
+                                filename = image.filepath_processed.split('/').pop();
+                            } else if (image.original_filename) {
+                                filename = image.original_filename;
+                            }
+                            
+                            // Use the Instagram path if we have a shortcode
+                            let imgSrc = '';
+                            if (image.instagram_shortcode) {
+                                imgSrc = `/pictures/incoming/instagram_${image.instagram_shortcode}.jpg`;
+                            } else if (filename) {
+                                // Otherwise use the processed path
+                                imgSrc = `/pictures/processed/${filename}`;
+                            } else {
+                                // Fallback to placeholder
+                                imgSrc = '/pictures/processed/placeholder.jpg';
+                            }
+                            
+                            galleryItem.innerHTML = `
+                                <img src="${imgSrc}" alt="Class from ${date}" class="gallery-image" 
+                                     onerror="this.onerror=null; this.src='/pictures/processed/placeholder.jpg';">
+                                <div class="gallery-info">
+                                    <div class="gallery-date">${date}</div>
+                                    <div class="gallery-attendees">
+                                        <i class="fas fa-users"></i> <span class="attendee-count">Loading...</span>
+                                    </div>
+                                    <div class="gallery-techniques"></div>
+                                </div>
+                            `;
+                            
+                            galleryContainer.appendChild(galleryItem);
+                            
+                            // Add click event to open image details
+                            galleryItem.addEventListener('click', function() {
+                                const imageId = this.getAttribute('data-image-id');
+                                if (imageId) {
+                                    openClassImageDetails(imageId);
+                                } else {
+                                    console.error("Cannot open details for image with undefined ID");
+                                }
+                            });
+                            
+                            // Fetch attendees count and techniques for this image
+                            fetch(`/api/class-images/${image.class_image_id}`)
+                                .then(response => {
+                                    if (!response.ok) {
+                                        throw new Error(`Server responded with status: ${response.status}`);
+                                    }
+                                    return response.json();
+                                })
+                                .then(imageData => {
+                                    if (imageData.success) {
+                                        // Update attendees count
+                                        galleryItem.querySelector('.attendee-count').textContent = 
+                                            `${imageData.total_attendees} attendees`;
+                                        
+                                        // Add techniques if available
+                                        const techniquesContainer = galleryItem.querySelector('.gallery-techniques');
+                                        if (imageData.techniques && imageData.techniques.length > 0) {
+                                            // Show up to 3 techniques
+                                            const techniques = imageData.techniques.slice(0, 3);
+                                            techniques.forEach(technique => {
+                                                const techTag = document.createElement('span');
+                                                techTag.className = 'techniques-tag';
+                                                techTag.textContent = technique.name;
+                                                techniquesContainer.appendChild(techTag);
+                                            });
+                                            
+                                            // If there are more techniques, add a "+X more" tag
+                                            if (imageData.techniques.length > 3) {
+                                                const moreTag = document.createElement('span');
+                                                moreTag.className = 'techniques-tag more';
+                                                moreTag.textContent = `+${imageData.techniques.length - 3} more`;
+                                                techniquesContainer.appendChild(moreTag);
+                                            }
+                                        } else {
+                                            techniquesContainer.innerHTML = '<span class="techniques-tag empty">No techniques</span>';
+                                        }
+                                    }
+                                })
+                                .catch(error => {
+                                    console.error(`Error fetching details for image ${image.class_image_id}:`, error);
+                                    galleryItem.querySelector('.attendee-count').textContent = 'Unknown';
+                                    galleryItem.querySelector('.gallery-techniques').innerHTML = 
+                                        '<span class="techniques-tag error">Error loading details</span>';
+                                });
+                        });
+                        
+                        // Set up pagination
+                        setupGalleryPagination(data.pagination, page);
+                        
+                        // Now that gallery is loaded, enhance the images
+                        if (typeof window.enhanceGalleryImages === 'function') {
+                            console.log("Calling enhanceGalleryImages after gallery loaded");
+                            setTimeout(window.enhanceGalleryImages, 300);
+                        }
+                    } else {
+                        galleryContainer.innerHTML = '<div class="error">Error loading gallery: ' + (data.error || 'Unknown error') + '</div>';
+                    }
+                })
+                .catch(error => {
+                    console.error('Error fetching gallery data:', error);
+                    galleryContainer.innerHTML = '<div class="error">Error loading gallery: ' + error.message + '</div>';
+                });
+        }
+        
+        function setupGalleryPagination(pagination, currentPage) {
+            const paginationContainer = document.getElementById('galleryPagination');
+            paginationContainer.innerHTML = '';
+            
+            if (pagination.total_pages <= 1) {
+                return; // No pagination needed
+            }
+            
+            // Previous button
+            const prevButton = document.createElement('button');
+            prevButton.className = `pagination-button prev ${currentPage === 1 ? 'disabled' : ''}`;
+            prevButton.innerHTML = '<i class="fas fa-chevron-left"></i>';
+            prevButton.disabled = currentPage === 1;
+            prevButton.addEventListener('click', function() {
+                if (currentPage > 1) {
+                    loadGallery(currentPage - 1);
+                }
+            });
+            paginationContainer.appendChild(prevButton);
+            
+            // Page buttons
+            const maxButtons = 5; // Maximum number of page buttons to show
+            let startPage = Math.max(1, currentPage - Math.floor(maxButtons / 2));
+            let endPage = Math.min(pagination.total_pages, startPage + maxButtons - 1);
+            
+            // Adjust start page if we're near the end
+            if (endPage === pagination.total_pages) {
+                startPage = Math.max(1, endPage - maxButtons + 1);
+            }
+            
+            // First page button if not starting from page 1
+            if (startPage > 1) {
+                const firstButton = document.createElement('button');
+                firstButton.className = 'pagination-button';
+                firstButton.textContent = '1';
+                firstButton.addEventListener('click', function() {
+                    loadGallery(1);
+                });
+                paginationContainer.appendChild(firstButton);
+                
+                // Add ellipsis if there's a gap
+                if (startPage > 2) {
+                    const ellipsis = document.createElement('span');
+                    ellipsis.className = 'pagination-ellipsis';
+                    ellipsis.textContent = '...';
+                    paginationContainer.appendChild(ellipsis);
+                }
+            }
+            
+            // Page buttons
+            for (let i = startPage; i <= endPage; i++) {
+                const pageButton = document.createElement('button');
+                pageButton.className = `pagination-button ${i === currentPage ? 'active' : ''}`;
+                pageButton.textContent = i;
+                pageButton.addEventListener('click', function() {
+                    loadGallery(i);
+                });
+                paginationContainer.appendChild(pageButton);
+            }
+            
+            // Last page button if not ending at the last page
+            if (endPage < pagination.total_pages) {
+                // Add ellipsis if there's a gap
+                if (endPage < pagination.total_pages - 1) {
+                    const ellipsis = document.createElement('span');
+                    ellipsis.className = 'pagination-ellipsis';
+                    ellipsis.textContent = '...';
+                    paginationContainer.appendChild(ellipsis);
+                }
+                
+                const lastButton = document.createElement('button');
+                lastButton.className = 'pagination-button';
+                lastButton.textContent = pagination.total_pages;
+                lastButton.addEventListener('click', function() {
+                    loadGallery(pagination.total_pages);
+                });
+                paginationContainer.appendChild(lastButton);
+            }
+            
+            // Next button
+            const nextButton = document.createElement('button');
+            nextButton.className = `pagination-button next ${currentPage === pagination.total_pages ? 'disabled' : ''}`;
+            nextButton.innerHTML = '<i class="fas fa-chevron-right"></i>';
+            nextButton.disabled = currentPage === pagination.total_pages;
+            nextButton.addEventListener('click', function() {
+                if (currentPage < pagination.total_pages) {
+                    loadGallery(currentPage + 1);
+                }
+            });
+            paginationContainer.appendChild(nextButton);
+        }
+        
+        // Add event listener for gallery filter button
+        document.getElementById('applyGalleryFilters').addEventListener('click', function() {
+            loadGallery(1); // Reset to first page when applying filters
         });
     </script>
 </body>

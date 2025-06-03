@@ -98,3 +98,4 @@ htmlcov/
 .tox/
 coverage.xml
 *.cover 
+pictures/
