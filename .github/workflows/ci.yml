@@ -1,0 +1,238 @@
+name: BJJ Class Pictures CI/CD
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v3
+    
+    - name: Free disk space
+      run: |
+        df -h
+        sudo rm -rf /usr/share/dotnet
+        sudo rm -rf /opt/ghc
+        sudo rm -rf /usr/local/share/boost
+        sudo rm -rf "$AGENT_TOOLSDIRECTORY"
+        sudo apt-get clean
+        df -h
+    
+    - name: Install jq for JSON parsing
+      run: sudo apt-get update && sudo apt-get install -y jq
+    
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v3
+    
+    - name: Cache Docker layers
+      uses: actions/cache@v3
+      with:
+        path: /tmp/.buildx-cache
+        key: ${{ runner.os }}-buildx-${{ github.sha }}
+        restore-keys: |
+          ${{ runner.os }}-buildx-
+    
+    - name: Create Docker network
+      run: docker network create app-network
+    
+    - name: Build App Image
+      uses: docker/build-push-action@v5
+      with:
+        context: .
+        push: false
+        tags: class-pictures-app:${{ github.sha }}
+        cache-from: type=local,src=/tmp/.buildx-cache
+        cache-to: type=local,dest=/tmp/.buildx-cache-new,mode=max
+        load: true
+    
+    - name: Build Test Image
+      uses: docker/build-push-action@v5
+      with:
+        context: .
+        file: Dockerfile.test
+        push: false
+        tags: class-pictures-test:${{ github.sha }}
+        cache-from: type=local,src=/tmp/.buildx-cache
+        cache-to: type=local,dest=/tmp/.buildx-cache-new,mode=max
+        load: true
+    
+    # Temp fix for https://github.com/docker/build-push-action/issues/252
+    - name: Move cache
+      run: |
+        rm -rf /tmp/.buildx-cache
+        mv /tmp/.buildx-cache-new /tmp/.buildx-cache
+    
+    - name: Run app container in background
+      run: |
+        # Show Docker images
+        docker images
+        
+        # Run the container with debug output enabled
+        docker run -d --name app-container \
+          --network app-network \
+          -p 5001:5001 \
+          -e FLASK_DEBUG=1 \
+          -e LOG_LEVEL=DEBUG \
+          -e REQUESTS_TIMEOUT=300 \
+          -e INSTAGRAM_TIMEOUT=180 \
+          class-pictures-app:${{ github.sha }}
+        
+        # Wait for the container to start
+        echo "Waiting for app container to start..."
+        sleep 30
+        
+        # Check if container is running and show logs
+        docker ps -a
+        echo "App container logs:"
+        docker logs app-container
+        
+        # Check if container is running
+        if [ "$(docker inspect -f '{{.State.Running}}' app-container)" != "true" ]; then
+          echo "App container failed to start. Here are the logs:"
+          docker logs app-container
+          exit 1
+        fi
+        
+        # Check if app is responding
+        echo "Checking if app is responding..."
+        max_attempts=120
+        for i in $(seq 1 $max_attempts); do
+          if curl -s http://localhost:5001/health; then
+            echo "App is responding!"
+            break
+          fi
+          if [ $i -eq $max_attempts ]; then
+            echo "App failed to respond after $max_attempts attempts. Here are the logs:"
+            docker logs app-container
+            exit 1
+          fi
+          echo "Waiting for app to respond (attempt $i/$max_attempts)..."
+          sleep 2
+        done
+    
+    - name: Show Docker network info
+      run: |
+        echo "Docker network info:"
+        docker network inspect app-network
+        
+        echo "Container network settings:"
+        docker inspect --format='{{json .NetworkSettings}}' app-container | jq
+    
+    - name: Run tests in test container
+      run: |
+        echo "Setting up test container..."
+        
+        # Get the app container's IP address
+        APP_IP=$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' app-container)
+        echo "App container IP: $APP_IP"
+        
+        # Run the test container with access to app container via Docker network
+        docker run --name test-container \
+          --network app-network \
+          -e BASE_URL=http://app-container:5001 \
+          -e TEST_TIMEOUT=300 \
+          -e DEBUG=1 \
+          class-pictures-test:${{ github.sha }}
+        
+        # Capture the exit code
+        TEST_EXIT_CODE=$?
+        
+        # Show test container logs
+        echo "Test container logs:"
+        docker logs test-container
+        
+        # Show app container logs after tests ran
+        echo "App container logs after tests:"
+        docker logs app-container
+        
+        # Exit with the same code as the test container
+        if [ $TEST_EXIT_CODE -ne 0 ]; then
+          echo "Tests failed with exit code: $TEST_EXIT_CODE"
+          echo "This could be due to Instagram rate limiting or connectivity issues."
+          echo "Review the logs for more details."
+          exit $TEST_EXIT_CODE
+        else
+          echo "Tests passed successfully!"
+        fi
+    
+    - name: Save Docker images as artifacts
+      run: |
+        mkdir -p docker-images
+        docker save class-pictures-app:${{ github.sha }} | gzip > docker-images/class-pictures-app.tar.gz
+        docker save class-pictures-test:${{ github.sha }} | gzip > docker-images/class-pictures-test.tar.gz
+    
+    - name: Upload Docker images as artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: docker-images
+        path: docker-images/
+        retention-days: 7
+    
+    - name: Create application package
+      run: |
+        mkdir -p dist
+        # Exclude unnecessary files and directories
+        tar --exclude="venv" --exclude=".git" --exclude="data/face_crops" \
+            --exclude="data/representative_features" --exclude="data/representative_persons" \
+            --exclude="pictures/incoming" --exclude="debug_output" --exclude="debug_output_reid" \
+            --exclude="test_data" --exclude="test_pictures" --exclude="test_output" \
+            --exclude="docker-images" --exclude="dist" \
+            -czf dist/class-pictures-app.tar.gz .
+    
+    - name: Upload application package
+      uses: actions/upload-artifact@v4
+      with:
+        name: application-package
+        path: dist/class-pictures-app.tar.gz
+        retention-days: 7
+
+  deploy:
+    needs: build-and-test
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Download application package
+      uses: actions/download-artifact@v4
+      with:
+        name: application-package
+        path: dist
+    
+    - name: Download Docker images
+      uses: actions/download-artifact@v4
+      with:
+        name: docker-images
+        path: docker-images
+    
+    - name: Set up Docker images
+      run: |
+        docker load < docker-images/class-pictures-app.tar.gz
+        docker load < docker-images/class-pictures-test.tar.gz
+    
+    - name: Tag Docker images for deployment
+      run: |
+        docker tag class-pictures-app:${{ github.sha }} class-pictures-app:latest
+        docker tag class-pictures-test:${{ github.sha }} class-pictures-test:latest
+    
+    # The following steps would be added for actual deployment
+    # - name: Deploy to production server
+    #   run: |
+    #     # Add deployment steps here, such as:
+    #     # - SSH into production server
+    #     # - Transfer application package
+    #     # - Extract and restart services
+    #     echo "Deployment would happen here"
+    
+    - name: Create release
+      if: startsWith(github.ref, 'refs/tags/')
+      uses: softprops/action-gh-release@v1
+      with:
+        files: |
+          dist/class-pictures-app.tar.gz
+          docker-images/class-pictures-app.tar.gz
+          docker-images/class-pictures-test.tar.gz 

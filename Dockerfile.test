@@ -1,0 +1,74 @@
+FROM python:3.13-slim
+
+WORKDIR /app
+
+# Install only the minimal system dependencies needed for testing
+RUN apt-get update && apt-get install -y \
+    libsqlite3-dev \
+    curl \
+    jq \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy requirements file and create a test-specific requirements file
+COPY requirements.txt /tmp/requirements.txt
+RUN grep -E "requests|flask_cors|pytest|unittest" /tmp/requirements.txt > /tmp/test-requirements.txt || true
+
+# Add minimal test dependencies
+RUN echo "requests>=2.25.0" >> /tmp/test-requirements.txt && \
+    echo "urllib3>=1.26.0" >> /tmp/test-requirements.txt
+
+# Install only test requirements - much smaller set than full app
+RUN pip install --no-cache-dir -r /tmp/test-requirements.txt
+
+# First copy only necessary test files to leverage Docker cache
+COPY src/test_*.py /app/src/
+COPY src/database_setup.py /app/src/
+
+# Create necessary test directories
+RUN mkdir -p pictures/incoming \
+    data/face_crops \
+    data/representative_features \
+    data/representative_persons \
+    test_data/face_crops \
+    test_data/representative_features \
+    test_data/representative_persons \
+    test_pictures/incoming
+
+# Set environment variables
+ENV PYTHONPATH=/app
+ENV DB_NAME=test_bjj_attendance.db
+ENV FLASK_APP=src.app
+ENV FLASK_DEBUG=1
+ENV TEST_TIMEOUT=300
+
+# Initialize the test database
+RUN python -m src.database_setup 
+
+# Add a script to run tests with better handling of network issues
+RUN echo '#!/bin/bash\n\
+echo "Waiting for app to be fully ready..."\n\
+sleep 10\n\
+echo "Testing network connectivity..."\n\
+echo "Testing connectivity to Instagram..."\n\
+curl -I https://www.instagram.com || echo "Warning: Cannot curl Instagram (may be rate limited)"\n\
+echo "Testing connectivity to app server..."\n\
+echo "Checking if app container is reachable:"\n\
+curl -v $BASE_URL/health\n\
+echo "Health check response content:"\n\
+curl -s $BASE_URL/health\n\
+echo "Testing DNS resolution:"\n\
+getent hosts host.docker.internal app-container localhost || echo "Cannot resolve hosts"\n\
+echo "Running tests with extended diagnostics..."\n\
+echo "These tests will use actual Instagram URLs to test the real user experience."\n\
+python -m unittest discover -v -s src -p "test_*.py"\n\
+exit_code=$?\n\
+echo "Tests completed with exit code: $exit_code"\n\
+exit $exit_code\n\
+' > /app/run_tests.sh && chmod +x /app/run_tests.sh
+
+# Now copy the rest of the files needed for testing
+COPY src/__init__.py /app/src/
+COPY init_test_db.py /app/
+
+# Command to run tests
+CMD ["/app/run_tests.sh"] 

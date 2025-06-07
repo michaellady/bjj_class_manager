@@ -1,0 +1,463 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>BJJ Class Attendance</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <!-- Add Font Awesome for icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+</head>
+<body>
+    <header>
+    <div class="container">
+        <h1>BJJ Class Attendance System</h1>
+            <nav>
+                <ul>
+                    <li><a href="#upload-section" class="active">Upload Class Photo</a></li>
+                    <li><a href="#gallery-section">Class Gallery</a></li>
+                    <li><a href="#students-section">Students</a></li>
+                    <li><a href="#attendance-section">Attendance History</a></li>
+                    <li><a href="#techniques-section">Technique History</a></li>
+                </ul>
+            </nav>
+        </div>
+    </header>
+
+    <main class="container">
+        <!-- Upload Section -->
+        <section id="upload-section" class="active-section">
+            <h2><i class="fas fa-upload"></i> Upload Class Photo</h2>
+            <div class="card">
+        <form id="uploadForm">
+                    <div class="form-group">
+                <label for="imageUrl">Instagram URL:</label>
+                <input type="text" id="imageUrl" name="imageUrl" 
+                               placeholder="https://www.instagram.com/p/XXXXX/" class="form-control">
+                        <small class="form-help">Paste the URL of the Instagram post containing the class photo</small>
+            </div>
+                    <div class="form-group">
+                <label for="classDate">Class Date:</label>
+                        <input type="date" id="classDate" name="classDate" class="form-control">
+                        <small class="form-help">If not specified, we'll use the date from the Instagram post</small>
+                    </div>
+                    <div class="form-group">
+                        <button type="submit" class="btn btn-primary">
+                            <i class="fas fa-cloud-upload-alt"></i> Upload & Process
+                        </button>
+            </div>
+                </form>
+            </div>
+        
+            <div id="processingContainer" class="hidden">
+                <h3>Processing Status</h3>
+                <div class="status-container">
+                    <div id="status" class="status-message"></div>
+                    <div class="processing-steps">
+                        <div class="processing-step" id="step-instagram">
+                            <i class="fas fa-circle step-icon"></i>
+                            <span class="step-text">Fetch from Instagram</span>
+                        </div>
+                        <div class="processing-step" id="step-facedetection">
+                            <i class="fas fa-circle step-icon"></i>
+                            <span class="step-text">Detect Faces</span>
+                        </div>
+                        <div class="processing-step" id="step-recognition">
+                            <i class="fas fa-circle step-icon"></i>
+                            <span class="step-text">Recognize People</span>
+                        </div>
+                        <div class="processing-step" id="step-attendance">
+                            <i class="fas fa-circle step-icon"></i>
+                            <span class="step-text">Record Attendance</span>
+                        </div>
+                    </div>
+        </div>
+        
+                <div class="row">
+                    <div class="col">
+                        <h3>Detected Techniques</h3>
+                        <div id="techniquesContainer" class="techniques-container">
+                            <div class="technique-group">
+                                <h4>Techniques</h4>
+                                <ul id="techniquesList" class="techniques-list"></ul>
+                            </div>
+                            <div class="technique-group">
+                                <h4>Positions</h4>
+                                <ul id="positionsList" class="techniques-list"></ul>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col">
+        <h3>Image Preview</h3>
+                        <div id="imagePreview" class="image-preview">
+                            <img id="previewImage" alt="Class photo">
+                        </div>
+        </div>
+    </div>
+
+                <div class="row">
+                    <div class="col">
+                        <h3>Processing Log</h3>
+                        <div id="logBox" class="log-box"></div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Class Gallery Section -->
+        <section id="gallery-section" class="hidden-section">
+            <h2><i class="fas fa-images"></i> Class Picture Gallery</h2>
+            
+            <div class="card">
+                <div class="filters">
+                    <div class="form-group">
+                        <label for="galleryDateRange">Date Range:</label>
+                        <select id="galleryDateRange" class="form-control">
+                            <option value="7">Last 7 Days</option>
+                            <option value="30" selected>Last 30 Days</option>
+                            <option value="90">Last 3 Months</option>
+                            <option value="180">Last 6 Months</option>
+                            <option value="365">Last Year</option>
+                            <option value="all">All Time</option>
+                        </select>
+                    </div>
+                    <button id="applyGalleryFilters" class="btn btn-primary">Apply Filters</button>
+                </div>
+            </div>
+            
+            <div class="card">
+                <h3>Class Pictures</h3>
+                <div id="galleryContainer" class="gallery-container">
+                    <div class="loading-indicator">Loading class pictures...</div>
+                </div>
+                <div id="galleryPagination" class="pagination">
+                    <!-- Pagination controls will be added here -->
+                </div>
+            </div>
+        </section>
+
+        <!-- Students Section -->
+        <section id="students-section" class="hidden-section">
+            <h2><i class="fas fa-users"></i> Students</h2>
+            
+            <div class="card">
+                <div class="filters">
+                    <div class="form-group">
+                        <label for="studentSearch">Search:</label>
+                        <input type="text" id="studentSearch" class="form-control" placeholder="Search by name...">
+                    </div>
+                    <div class="form-group">
+                        <label for="studentSort">Sort By:</label>
+                        <select id="studentSort" class="form-control">
+                            <option value="name">Name</option>
+                            <option value="attendance" selected>Most Attendance</option>
+                            <option value="recent">Most Recent</option>
+                        </select>
+                    </div>
+                    <button id="applyStudentFilters" class="btn btn-primary">Apply Filters</button>
+                </div>
+            </div>
+            
+            <div class="card">
+                <h3>All Students</h3>
+                <div id="studentsContainer" class="students-grid">
+                    <div class="loading-indicator">Loading students...</div>
+                </div>
+                <div id="studentsPagination" class="pagination">
+                    <!-- Pagination controls will be added here -->
+                </div>
+            </div>
+            
+            <div id="studentDetailView" class="student-detail-view" style="display: none;">
+                <div class="card">
+                    <div class="student-header">
+                        <button id="backToStudentsBtn" class="btn btn-sm"><i class="fas fa-arrow-left"></i> Back to Students</button>
+                        <h3 id="studentDetailName">Student Name</h3>
+                    </div>
+                    
+                    <div class="student-info">
+                        <div class="student-profile">
+                            <img id="studentDetailImage" src="" alt="Student Profile" class="student-profile-image">
+                            <div class="student-stats">
+                                <p><strong>Total Classes:</strong> <span id="studentDetailClasses">0</span></p>
+                                <p><strong>First Seen:</strong> <span id="studentDetailFirstSeen">N/A</span></p>
+                                <p><strong>Last Seen:</strong> <span id="studentDetailLastSeen">N/A</span></p>
+                                <button id="editStudentNameBtn" class="btn btn-sm">
+                                    <i class="fas fa-edit"></i> Edit Name
+                                </button>
+                                <button id="reassignStudentBtn" class="btn btn-sm btn-primary">
+                                    <i class="fas fa-exchange-alt"></i> Reassign to Another Student
+                                </button>
+                            </div>
+                        </div>
+                        
+                        <h4>Class Attendance History</h4>
+                        <div id="studentAttendanceHistory" class="attendance-history">
+                            <div class="loading-indicator">Loading attendance history...</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Reassignment Modal -->
+            <div id="reassignmentModal" class="modal">
+                <div class="modal-content">
+                    <span class="close">&times;</span>
+                    <h3>Reassign Student Detection</h3>
+                    <div class="modal-body">
+                        <div class="reassignment-content">
+                            <div class="detection-preview">
+                                <h4>Current Student</h4>
+                                <img id="currentStudentImage" src="" alt="Current Student">
+                                <p id="currentStudentName">Loading...</p>
+                            </div>
+                            <div class="reassignment-options">
+                                <h4>Select Target Student</h4>
+                                <div class="form-group">
+                                    <label for="targetStudentSelect">Target Student:</label>
+                                    <select id="targetStudentSelect" class="form-control">
+                                        <option value="">Loading students...</option>
+                                    </select>
+                                </div>
+                                <p class="form-help">This will move this student's detection to the selected student.</p>
+                                <button id="confirmReassignBtn" class="btn btn-primary">Confirm Reassignment</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Attendance History Section -->
+        <section id="attendance-section" class="hidden-section">
+            <h2><i class="fas fa-clipboard-list"></i> Attendance History</h2>
+            
+            <div class="card">
+                <div class="filters">
+                    <div class="form-group">
+                        <label for="dateRange">Date Range:</label>
+                        <select id="dateRange" class="form-control">
+                            <option value="7">Last 7 Days</option>
+                            <option value="30" selected>Last 30 Days</option>
+                            <option value="90">Last 3 Months</option>
+                            <option value="180">Last 6 Months</option>
+                            <option value="365">Last Year</option>
+                            <option value="all">All Time</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label for="studentFilter">Student:</label>
+                        <select id="studentFilter" class="form-control">
+                            <option value="all">All Students</option>
+                            <!-- Will be populated dynamically -->
+                        </select>
+                    </div>
+                    <button id="applyFilters" class="btn btn-primary">Apply Filters</button>
+                </div>
+            </div>
+            
+            <div class="row">
+                <div class="col">
+                    <div class="card">
+                        <h3>Attendance Overview</h3>
+                        <div id="attendanceStats" class="stats-container">
+                            <div class="stat-card">
+                                <div class="stat-value" id="totalClasses">0</div>
+                                <div class="stat-label">Total Classes</div>
+                            </div>
+                            <div class="stat-card">
+                                <div class="stat-value" id="totalStudents">0</div>
+                                <div class="stat-label">Unique Students</div>
+                            </div>
+                            <div class="stat-card">
+                                <div class="stat-value" id="avgAttendance">0</div>
+                                <div class="stat-label">Avg. Attendance</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="col">
+                    <div class="card">
+                        <h3>Student Leaderboard</h3>
+                        <div id="leaderboard" class="leaderboard">
+                            <table>
+                                <thead>
+                                    <tr>
+                                        <th>Rank</th>
+                                        <th>Student</th>
+                                        <th>Classes</th>
+                                        <th>Attendance %</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="leaderboardBody">
+                                    <!-- Will be populated dynamically -->
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="card">
+                <h3>Class Attendance Records</h3>
+                <div id="attendanceTable" class="table-container">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Date</th>
+                                <th>Students</th>
+                                <th>Techniques</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="attendanceTableBody">
+                            <!-- Will be populated dynamically -->
+                        </tbody>
+                    </table>
+                </div>
+                <div id="pagination" class="pagination">
+                    <!-- Pagination controls -->
+                </div>
+            </div>
+            
+            <div id="imageDetailsModal" class="modal">
+                <div class="modal-content">
+                    <span class="close">&times;</span>
+                    <h3>Class Image Details</h3>
+                    <div class="modal-body">
+                        <div class="image-container">
+                            <img id="modalImage" src="" alt="Class Image">
+                        </div>
+                        <div class="details-container">
+                            <h4>Attendees</h4>
+                            <div id="modalAttendees" class="attendees-list"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Techniques History Section -->
+        <section id="techniques-section" class="hidden-section">
+            <h2><i class="fas fa-dumbbell"></i> Technique History</h2>
+            
+            <div class="card">
+                <div class="filters">
+                    <div class="form-group">
+                        <label for="techniqueFilter">Technique Type:</label>
+                        <select id="techniqueFilter" class="form-control">
+                            <option value="all">All Types</option>
+                            <option value="technique">Techniques</option>
+                            <option value="position">Positions</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label for="frequencyFilter">Sort By:</label>
+                        <select id="frequencyFilter" class="form-control">
+                            <option value="frequency">Most Frequent</option>
+                            <option value="recent">Most Recent</option>
+                            <option value="alphabetical">Alphabetical</option>
+                        </select>
+                    </div>
+                    <button id="applyTechniqueFilters" class="btn btn-primary">Apply Filters</button>
+                </div>
+            </div>
+            
+            <div class="row">
+                <div class="col">
+                    <div class="card">
+                        <h3>Technique Stats</h3>
+                        <div id="techniqueStats" class="stats-container">
+                            <div class="stat-card">
+                                <div class="stat-value" id="totalTechniques">0</div>
+                                <div class="stat-label">Unique Techniques</div>
+                            </div>
+                            <div class="stat-card">
+                                <div class="stat-value" id="topTechnique">-</div>
+                                <div class="stat-label">Most Taught</div>
+                            </div>
+                            <div class="stat-card">
+                                <div class="stat-value" id="techniqueClasses">0</div>
+                                <div class="stat-label">Classes w/ Techniques</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="col">
+                    <div class="card">
+                        <h3>Technique Distribution</h3>
+                        <div id="techniqueChart" class="chart-container">
+                            <!-- Chart will be rendered here -->
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="card">
+                <h3>Technique History</h3>
+                <div id="techniquesHistoryTable" class="table-container">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Technique</th>
+                                <th>Type</th>
+                                <th>Times Taught</th>
+                                <th>Last Taught</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="techniquesTableBody">
+                            <!-- Will be populated dynamically -->
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </section>
+    </main>
+
+    <footer>
+        <div class="container">
+            <p>&copy; 2023 BJJ Class Attendance System</p>
+        </div>
+    </footer>
+
+    <div id="imageDetailsModal" class="modal">
+        <div class="modal-content">
+            <span class="close">×</span>
+            <h3>Class Image Details</h3>
+            <div class="modal-body">
+                <div class="image-container">
+                    <img id="modalImage" src="" alt="Class Image">
+                </div>
+                <div class="details-container">
+                    <h4>Attendees</h4>
+                    <div id="modalAttendees" class="attendees-list"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div id="personDetailsModal" class="modal">
+        <div class="modal-content">
+            <span class="close">×</span>
+            <h3>Person Details</h3>
+            <div class="modal-body">
+                <div class="loading">Loading person details...</div>
+            </div>
+        </div>
+    </div>
+
+    <div id="reassignmentModal" class="modal">
+        <div class="modal-content">
+            <span class="close">×</span>
+            <h3>Reassign Face Detection</h3>
+            <div class="modal-body">
+                <div class="loading">Loading...</div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Include JavaScript -->
+    <script src="{{ url_for('static', filename='js/app.js') }}"></script>
+</body>
+</html>

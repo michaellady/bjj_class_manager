@@ -1,0 +1,38 @@
+version: '3.8'
+
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "5001:5001"
+    volumes:
+      - ./pictures:/app/pictures
+      - ./data:/app/data
+    environment:
+      - FLASK_APP=src.app
+      - FLASK_DEBUG=1
+      - DB_NAME=bjj_attendance.db
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5001/"]
+      interval: 5s
+      timeout: 10s
+      retries: 3
+      start_period: 5s
+
+  test:
+    build:
+      context: .
+      dockerfile: Dockerfile.test
+    volumes:
+      - ./test_pictures:/app/pictures
+      - ./test_data:/app/data
+    environment:
+      - FLASK_APP=src.app
+      - FLASK_DEBUG=1
+      - DB_NAME=test_bjj_attendance.db
+      - BASE_URL=http://app:5001
+    depends_on:
+      app:
+        condition: service_healthy 

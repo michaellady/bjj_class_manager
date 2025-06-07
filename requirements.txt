@@ -1,0 +1,16 @@
+opencv-python
+numpy
+Pillow
+scikit-image
+ultralytics
+torchreid
+scikit-learn
+pandas
+matplotlib
+Flask
+Flask-CORS
+requests
+beautifulsoup4
+instaloader
+spacy>=3.0.0
+openai>=1.0.0

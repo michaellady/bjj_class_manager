@@ -1,0 +1,142 @@
+/* Gallery Styles */
+.gallery-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+    gap: 20px;
+    margin-top: 20px;
+}
+
+.gallery-item {
+    border: 1px solid #ddd;
+    border-radius: 8px;
+    overflow: hidden;
+    transition: transform 0.2s;
+    background-color: white;
+    box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+}
+
+.gallery-item:hover {
+    transform: translateY(-5px);
+    box-shadow: 0 5px 15px rgba(0,0,0,0.1);
+}
+
+.gallery-item img {
+    width: 100%;
+    height: 200px;
+    object-fit: cover;
+    border-bottom: 1px solid #eee;
+}
+
+.gallery-date {
+    font-weight: bold;
+    padding: 10px;
+    text-align: center;
+    color: #333;
+    background-color: #f8f9fa;
+    border-bottom: 1px solid #eee;
+}
+
+.attendees-count {
+    padding: 8px 10px;
+    color: #0066cc;
+    font-size: 14px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.attendees-count i {
+    margin-right: 5px;
+}
+
+.view-details-btn {
+    display: block;
+    width: 100%;
+    padding: 10px;
+    background-color: #007bff;
+    color: white;
+    border: none;
+    cursor: pointer;
+    font-weight: bold;
+    transition: background-color 0.2s;
+}
+
+.view-details-btn:hover {
+    background-color: #0056b3;
+}
+
+/* Modal Styles */
+#imageDetailsModal {
+    display: none;
+    position: fixed;
+    z-index: 1000;
+    left: 0;
+    top: 0;
+    width: 100%;
+    height: 100%;
+    overflow: auto;
+    background-color: rgba(0,0,0,0.8);
+}
+
+.modal-content {
+    background-color: #fefefe;
+    margin: 5% auto;
+    padding: 20px;
+    border: 1px solid #888;
+    width: 80%;
+    max-width: 900px;
+    border-radius: 8px;
+}
+
+.close {
+    color: #aaa;
+    float: right;
+    font-size: 28px;
+    font-weight: bold;
+}
+
+.close:hover,
+.close:focus {
+    color: black;
+    text-decoration: none;
+    cursor: pointer;
+}
+
+#modalImage {
+    max-width: 100%;
+    max-height: 500px;
+    display: block;
+    margin: 0 auto 20px;
+    border-radius: 4px;
+}
+
+.attendees-list {
+    list-style-type: none;
+    padding: 0;
+    margin: 0;
+}
+
+.attendees-list li {
+    padding: 8px;
+    border-bottom: 1px solid #eee;
+}
+
+.attendees-list li:last-child {
+    border-bottom: none;
+}
+
+.student-link {
+    color: #007bff;
+    text-decoration: none;
+    font-weight: bold;
+}
+
+.student-link:hover {
+    text-decoration: underline;
+}
+
+.detection-count {
+    color: #6c757d;
+    font-size: 0.9em;
+    margin-left: 8px;
+} 
