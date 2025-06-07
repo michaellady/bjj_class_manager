@@ -25,7 +25,8 @@ REPRESENTATIVE_IMAGE_DIR = os.path.join(da.PROJECT_ROOT, "data", "representative
 REPRESENTATIVE_FEATURE_DIR = os.path.join(da.PROJECT_ROOT, "data", "representative_features")
 FACE_CROP_DIR = os.path.join(da.PROJECT_ROOT, "data", "face_crops") # For storing all detected face crops
 
-SIMILARITY_THRESHOLD = 0.9  # From main.py
+# Lower the threshold to make face matching more aggressive (was 0.9)
+SIMILARITY_THRESHOLD = 0.75  # Lowered from 0.9 for more aggressive matching
 KNOWN_PERSON_FEATURE_UPDATE_STRATEGY = 'average' # From main.py
 MAX_FEATURES_PER_PERSON_FOR_AVG = 5 # From main.py (renamed for clarity)
 
@@ -75,7 +76,8 @@ def _save_representative_image(person_id: str, new_face_crop_source_path: str):
 
 def get_dynamic_threshold(num_samples: int) -> float:
     """Return a dynamic threshold based on number of samples."""
-    base_threshold = 0.85
+    # Lower base threshold (was 0.85)
+    base_threshold = 0.70
     if num_samples < 2:
         return base_threshold + 0.05  # More strict with few samples
     elif num_samples < 5:
@@ -136,6 +138,9 @@ def identify_person_improved(new_feature_vector: np.ndarray, face_angles: Tuple[
     """
     Enhanced person identification with multiple similarity metrics and confidence scoring.
     
+    Compares a new face detection against ALL existing students and returns the best match
+    if it exceeds the similarity threshold.
+    
     Returns:
         Tuple of (person_id, confidence_score, is_reliable_match)
     """
@@ -143,8 +148,12 @@ def identify_person_improved(new_feature_vector: np.ndarray, face_angles: Tuple[
     best_match = None
     max_confidence = -1
     
-    # Get all known persons
+    # Get all known persons - always compare against ALL existing students
     all_persons = da.get_all_persons()
+    logger.info(f"Comparing new face detection against {len(all_persons)} existing students")
+    
+    # Store all matches that exceed their thresholds
+    potential_matches = []
     
     for person in all_persons:
         person_id = person['person_id']
@@ -201,18 +210,42 @@ def identify_person_improved(new_feature_vector: np.ndarray, face_angles: Tuple[
             0.2 * avg_angle_penalty   # Angle similarity helps confirm
         )
         
-        if confidence > max_confidence and confidence > threshold:
+        # If this exceeds the threshold, add to potential matches
+        if confidence > threshold:
+            potential_matches.append((person_id, confidence, max_similarity))
+            logger.info(f"Found potential match: student {person_id} with confidence {confidence:.4f} (threshold: {threshold:.4f})")
+        
+        # Also update the overall best match
+        if confidence > max_confidence:
             max_confidence = confidence
             best_match = (person_id, confidence)
     
-    if best_match:
-        return best_match[0], max_confidence, max_confidence > (get_dynamic_threshold(1) + 0.1)
-    return None, max_confidence, False
+    # If we have potential matches, select the one with highest confidence
+    if potential_matches:
+        # Sort by confidence (highest first)
+        potential_matches.sort(key=lambda x: x[1], reverse=True)
+        best_person_id, best_confidence, best_raw_similarity = potential_matches[0]
+        
+        # Log information about the match
+        if len(potential_matches) > 1:
+            logger.info(f"Multiple matches found ({len(potential_matches)}). Selected best match: {best_person_id} with confidence {best_confidence:.4f}")
+        else:
+            logger.info(f"Found single match: {best_person_id} with confidence {best_confidence:.4f}")
+        
+        # Check if this is reliable (significantly above base threshold)
+        is_reliable = best_confidence > (get_dynamic_threshold(1) + 0.1)
+        
+        return best_person_id, best_confidence, is_reliable
+    
+    # No matches above threshold
+    logger.info(f"No matches found above threshold. Best confidence was {max_confidence:.4f}")
+    return None, max_confidence if max_confidence > -1 else 0.0, False
 
 def process_new_class_image(image_id: int, image_path: str, image_date_taken_iso: str):
     """
     Processes a single class image with improved face quality analysis and matching.
-    Automatically creates new persons for unmatched face detections.
+    Automatically matches detections to existing students when possible,
+    or creates new students for unmatched face detections.
     """
     logger.info(f"Starting processing for image_id: {image_id}, path: {image_path}")
     if not os.path.exists(image_path):
@@ -236,7 +269,9 @@ def process_new_class_image(image_id: int, image_path: str, image_date_taken_iso
             da.update_class_image_status(image_id, "error", "Could not read image file.")
             return False
 
-        num_detections = 0
+        matched_students = 0
+        new_students = 0
+        
         for i, detected_data in enumerate(detected_data_list):
             feature_vector = detected_data["embedding"]
             bbox = detected_data["bbox_xyxy"]
@@ -262,8 +297,32 @@ def process_new_class_image(image_id: int, image_path: str, image_date_taken_iso
                 feature_vector, face_angles, overall_quality
             )
 
+            # If a match was found, update the existing student
+            if person_id:
+                logger.info(f"Detection {i} matched to existing student {person_id} with confidence {confidence:.4f}")
+                matched_students += 1
+                
+                # Check if this is a higher quality image than the student's current representative image
+                update_representative = False
+                
+                if overall_quality > 0.85:  # Only consider high-quality images
+                    person_data = da.get_person_by_id(person_id)
+                    if person_data:
+                        # If no existing quality score or this one is better, update
+                        if 'quality_score' not in person_data or overall_quality > person_data['quality_score']:
+                            update_representative = True
+                
+                if update_representative:
+                    logger.info(f"Updating representative image for student {person_id} with higher quality image")
+                    new_rep_image_path = _save_representative_image(person_id, detection_crop_filepath)
+                    if new_rep_image_path:
+                        da.update_person_details(person_id, representative_image_path=new_rep_image_path, quality_score=overall_quality)
+            
             # If no match found, create a new person
-            if not person_id:
+            else:
+                logger.info(f"No match found for detection {i}, creating new student")
+                new_students += 1
+                
                 # Generate new person ID
                 new_person_id = str(uuid.uuid4())
                 
@@ -288,7 +347,8 @@ def process_new_class_image(image_id: int, image_path: str, image_date_taken_iso
                     name=None,  # User can name them later
                     enrollment_date=image_date_taken_iso,  # Use image date as enrollment date
                     representative_feature_path=new_rep_feature_path,
-                    representative_image_path=new_rep_image_path
+                    representative_image_path=new_rep_image_path,
+                    quality_score=overall_quality  # Store the quality score
                 )
                 
                 if not person_id:
@@ -326,19 +386,21 @@ def process_new_class_image(image_id: int, image_path: str, image_date_taken_iso
                     detection_id=detection_id
                 )
 
-            num_detections += 1
-
-        # Update image status
+        # Update image status with summary of matches
+        status_message = f"Processed {len(detected_data_list)} faces: {matched_students} matched to existing students, {new_students} new students created."
+        logger.info(status_message)
         da.update_class_image_status(
             image_id, 
             "completed",
-            f"Processed successfully. Found {num_detections} persons."
+            status_message
         )
         return True
-
+            
     except Exception as e:
-        logger.error(f"Error processing image {image_id}: {e}")
-        da.update_class_image_status(image_id, "error", str(e))
+        error_message = f"Error processing image: {str(e)}"
+        logger.error(error_message)
+        logger.exception(e)
+        da.update_class_image_status(image_id, "error", error_message)
         return False
 
 

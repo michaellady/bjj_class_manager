@@ -10,6 +10,8 @@ from datetime import datetime, timedelta
 import sqlite3
 import requests
 import traceback
+import base64
+import io
 from flask import Flask, render_template, request, jsonify, send_from_directory, abort, url_for
 from flask_cors import CORS
 from PIL import Image, ImageDraw, ImageFont
@@ -24,7 +26,8 @@ from src.data_access import (
     add_class_image, update_class_image_status, 
     add_detection, get_class_image_by_id, get_detections_for_image,
     get_all_class_images, get_all_persons, get_detections_for_person,
-    update_detection_assignment, update_person_name, get_person_by_id
+    update_detection_assignment, update_person_name, get_person_by_id,
+    get_detection_by_id, delete_person
 )
 
 # Configure logging with more detailed format
@@ -257,61 +260,47 @@ def fetch_instagram_image(instagram_url):
 
 @app.route('/api/images/upload', methods=['POST'])
 def upload_image():
-    """Upload a class photo from URL."""
+    """Upload a class photo from URL or file."""
     try:
         # Start timing the request
         start_time = time.time()
         logger.info("Received image upload request")
         
-        # Get image URL from request
+        # Get input parameters
         image_url = request.form.get('image_url')
+        file = request.files.get('file')
         date = request.form.get('date')
         caption = request.form.get('caption', '')
         
-        logger.info(f"Upload parameters: URL={image_url}, date={date}, caption_length={len(caption)}")
+        logger.info(f"Upload parameters: URL={image_url}, File={file.filename if file else None}, date={date}, caption_length={len(caption)}")
         
-        if not image_url:
-            logger.warning("No image URL provided in upload request")
-            return jsonify({"error": "No image URL provided"}), 400
+        if not image_url and not file:
+            logger.warning("No image URL or file provided in upload request")
+            return jsonify({"error": "No image URL or file provided"}), 400
         
-        # Check if it's an Instagram URL
-        is_instagram = 'instagram.com' in image_url
-        logger.info(f"URL is{'n' if not is_instagram else ''} Instagram URL: {image_url}")
-        
-        if is_instagram:
-            logger.info(f"Processing Instagram URL: {image_url}")
+        # Process based on input type (URL or file)
+        if file:
+            # Handle file upload
+            logger.info(f"Processing uploaded file: {file.filename}")
             
-            # Call our Instagram fetching function
-            fetch_result = fetch_instagram_image(image_url)
+            # Create filename with timestamp to avoid conflicts
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            filename = f"{timestamp}_{file.filename}"
+            file_path = os.path.join(UPLOAD_FOLDER, filename)
             
-            if not fetch_result["success"]:
-                logger.error(f"Failed to fetch Instagram image: {fetch_result.get('error', 'Unknown error')}")
-                return jsonify({
-                    "success": False,
-                    "error": f"Failed to fetch Instagram image: {fetch_result.get('error', 'Unknown error')}"
-                }), 500
+            # Ensure upload directory exists
+            os.makedirs(os.path.dirname(file_path), exist_ok=True)
             
-            logger.info(f"Successfully fetched Instagram image to {fetch_result['local_path']} in {fetch_result['process_time']:.2f}s")
+            # Save uploaded file
+            file.save(file_path)
+            logger.info(f"Saved uploaded file to {file_path}")
             
-            # Use the caption from Instagram if available and none provided
-            if not caption and fetch_result.get("caption"):
-                caption = fetch_result["caption"]
-                logger.info(f"Using caption from Instagram post: {caption[:50]}...")
-                
-            # Use the post date if available and none provided
-            if not date and fetch_result.get("post_date"):
-                date = fetch_result["post_date"].isoformat()
-                logger.info(f"Using date from Instagram post: {date}")
-                
             # Store image information in database
             image_id = add_class_image(
-                original_filename=os.path.basename(fetch_result["local_path"]),
-                filepath_processed=fetch_result["local_path"],
+                original_filename=file.filename,
+                filepath_processed=file_path,
                 date_taken=date or datetime.now().isoformat(),
-                processing_status="pending",
-                instagram_shortcode=fetch_result.get("shortcode"),
-                instagram_caption=caption,
-                instagram_post_url=image_url
+                processing_status="pending"
             )
             
             if not image_id:
@@ -323,30 +312,50 @@ def upload_image():
                 
             logger.info(f"Stored image information in database with ID {image_id}")
             
-            # Process the image in the background (this would normally be done by a worker)
-            # For now, let's extract people and process attendance directly
+            # Process the image with face recognition and student matching
             try:
                 # Extract techniques from caption
+                techniques = {}
                 if caption:
                     technique_extractor = TechniqueExtractor()
                     techniques = technique_extractor.extract_techniques(caption)
                     logger.info(f"Extracted techniques: {json.dumps(techniques)}")
+                
+                # Import here to avoid circular imports
+                from src.attendance_manager import process_new_class_image
+                
+                # Process the class image with improved person identification
+                process_result = process_new_class_image(
+                    image_id=image_id,
+                    image_path=file_path,
+                    image_date_taken_iso=date or datetime.now().isoformat()
+                )
+                
+                if process_result:
+                    logger.info(f"Successfully processed image {image_id} with face recognition and matching")
+                    # Get the number of detections for this image
+                    conn = create_connection()
+                    cursor = conn.cursor()
+                    cursor.execute("SELECT COUNT(*) FROM Detections WHERE class_image_id = ?", (image_id,))
+                    num_detections = cursor.fetchone()[0]
+                    conn.close()
                     
-                # Extract persons from image
-                detected_persons = extract_person_features(fetch_result["local_path"])
-                logger.info(f"Detected {len(detected_persons)} persons in the image")
-                
-                # Update image status
-                update_class_image_status(image_id, "processed")
-                
-                # Return success response
-                return jsonify({
-                    "success": True,
-                    "image_id": image_id,
-                    "processing_time": time.time() - start_time,
-                    "num_persons_detected": len(detected_persons),
-                    "techniques_extracted": techniques if caption else {}
-                }), 201
+                    # Return success response
+                    return jsonify({
+                        "success": True,
+                        "image_id": image_id,
+                        "processing_time": time.time() - start_time,
+                        "num_persons_detected": num_detections,
+                        "techniques_extracted": techniques
+                    }), 201
+                else:
+                    logger.error(f"Failed to process image {image_id}")
+                    return jsonify({
+                        "success": True,
+                        "image_id": image_id,
+                        "processing_error": "Failed to process image with face recognition",
+                        "processing_time": time.time() - start_time
+                    }), 201
                 
             except Exception as processing_error:
                 logger.error(f"Error processing image: {processing_error}")
@@ -361,14 +370,122 @@ def upload_image():
                     "processing_time": time.time() - start_time
                 }), 201
                 
-        else:
-            # Handle direct URL uploads
-            logger.info(f"Processing direct image URL (non-Instagram): {image_url}")
-            # Logic for direct URLs would go here
-            return jsonify({
-                "success": False,
-                "error": "Direct URL uploads not implemented yet"
-            }), 501
+        elif image_url:
+            # Check if it's an Instagram URL
+            is_instagram = 'instagram.com' in image_url
+            logger.info(f"URL is{'n' if not is_instagram else ''} Instagram URL: {image_url}")
+            
+            if is_instagram:
+                logger.info(f"Processing Instagram URL: {image_url}")
+                
+                # Call our Instagram fetching function
+                fetch_result = fetch_instagram_image(image_url)
+                
+                if not fetch_result["success"]:
+                    logger.error(f"Failed to fetch Instagram image: {fetch_result.get('error', 'Unknown error')}")
+                    return jsonify({
+                        "success": False,
+                        "error": f"Failed to fetch Instagram image: {fetch_result.get('error', 'Unknown error')}"
+                    }), 500
+                
+                logger.info(f"Successfully fetched Instagram image to {fetch_result['local_path']} in {fetch_result['process_time']:.2f}s")
+                
+                # Use the caption from Instagram if available and none provided
+                if not caption and fetch_result.get("caption"):
+                    caption = fetch_result["caption"]
+                    logger.info(f"Using caption from Instagram post: {caption[:50]}...")
+                    
+                # Use the post date if available and none provided
+                if not date and fetch_result.get("post_date"):
+                    date = fetch_result["post_date"].isoformat()
+                    logger.info(f"Using date from Instagram post: {date}")
+                    
+                # Store image information in database
+                image_id = add_class_image(
+                    original_filename=os.path.basename(fetch_result["local_path"]),
+                    filepath_processed=fetch_result["local_path"],
+                    date_taken=date or datetime.now().isoformat(),
+                    processing_status="pending",
+                    instagram_shortcode=fetch_result.get("shortcode"),
+                    instagram_caption=caption,
+                    instagram_post_url=image_url
+                )
+                
+                if not image_id:
+                    logger.error("Failed to store image information in database")
+                    return jsonify({
+                        "success": False,
+                        "error": "Database error: Failed to store image information"
+                    }), 500
+                    
+                logger.info(f"Stored image information in database with ID {image_id}")
+                
+                # Process the image with face recognition and student matching
+                try:
+                    # Extract techniques from caption
+                    techniques = {}
+                    if caption:
+                        technique_extractor = TechniqueExtractor()
+                        techniques = technique_extractor.extract_techniques(caption)
+                        logger.info(f"Extracted techniques: {json.dumps(techniques)}")
+                    
+                    # Import here to avoid circular imports
+                    from src.attendance_manager import process_new_class_image
+                    
+                    # Process the class image with improved person identification
+                    process_result = process_new_class_image(
+                        image_id=image_id,
+                        image_path=fetch_result["local_path"],
+                        image_date_taken_iso=date or datetime.now().isoformat()
+                    )
+                    
+                    if process_result:
+                        logger.info(f"Successfully processed image {image_id} with face recognition and matching")
+                        # Get the number of detections for this image
+                        conn = create_connection()
+                        cursor = conn.cursor()
+                        cursor.execute("SELECT COUNT(*) FROM Detections WHERE class_image_id = ?", (image_id,))
+                        num_detections = cursor.fetchone()[0]
+                        conn.close()
+                        
+                        # Return success response
+                        return jsonify({
+                            "success": True,
+                            "image_id": image_id,
+                            "processing_time": time.time() - start_time,
+                            "num_persons_detected": num_detections,
+                            "techniques_extracted": techniques
+                        }), 201
+                    else:
+                        logger.error(f"Failed to process image {image_id}")
+                        return jsonify({
+                            "success": True,
+                            "image_id": image_id,
+                            "processing_error": "Failed to process image with face recognition",
+                            "processing_time": time.time() - start_time
+                        }), 201
+                    
+                except Exception as processing_error:
+                    logger.error(f"Error processing image: {processing_error}")
+                    # Update image status to error
+                    update_class_image_status(image_id, "error", str(processing_error))
+                    
+                    # Still return success for the upload, but indicate processing error
+                    return jsonify({
+                        "success": True,
+                        "image_id": image_id,
+                        "processing_error": str(processing_error),
+                        "processing_time": time.time() - start_time
+                    }), 201
+                    
+            else:
+                # Handle direct URL uploads
+                logger.info(f"Processing direct image URL (non-Instagram): {image_url}")
+                # Logic for direct URLs would go here
+                return jsonify({
+                    "success": False,
+                    "error": "Direct URL uploads not implemented yet"
+                }), 501
         
     except Exception as e:
         logger.error(f"Error in upload_image endpoint: {e}")
@@ -772,6 +889,155 @@ def get_class_image_details(image_id):
             "error": str(e)
         }), 500
 
+@app.route('/api/class-images/<int:image_id>', methods=['DELETE'])
+def delete_class_image(image_id):
+    """Delete a class image and its associated data."""
+    try:
+        # Get image from database to check if it exists
+        image = get_class_image_by_id(image_id)
+        if not image:
+            logger.error(f"Class image with ID {image_id} not found for deletion")
+            return jsonify({
+                "success": False,
+                "error": f"Class image with ID {image_id} not found"
+            }), 404
+        
+        # Store the file paths for deletion after database entries are removed
+        file_paths_to_delete = []
+        
+        # Get the image path
+        if image.get('filepath_processed'):
+            file_paths_to_delete.append(image['filepath_processed'])
+        
+        if image.get('processed_image_path'):
+            file_paths_to_delete.append(image['processed_image_path'])
+        
+        # Get detections to find face crop files
+        detections = get_detections_for_image(image_id)
+        if detections:
+            for detection in detections:
+                if detection.get('face_crop_path'):
+                    file_paths_to_delete.append(detection['face_crop_path'])
+        
+        # Begin transaction to delete database entries
+        conn = create_connection()
+        cursor = conn.cursor()
+        
+        try:
+            # Disable foreign key constraints temporarily
+            cursor.execute("PRAGMA foreign_keys = OFF;")
+            
+            # Begin transaction
+            cursor.execute("BEGIN TRANSACTION;")
+            
+            # First, identify persons who will have no detections after this class image is deleted
+            cursor.execute("""
+                SELECT p.person_id, p.representative_image_path, p.representative_feature_path 
+                FROM Persons p
+                WHERE p.person_id IN (
+                    SELECT DISTINCT d.person_id 
+                    FROM Detections d 
+                    WHERE d.class_image_id = ?
+                )
+                AND (
+                    SELECT COUNT(d2.detection_id) 
+                    FROM Detections d2 
+                    WHERE d2.person_id = p.person_id AND d2.class_image_id != ?
+                ) = 0
+            """, (image_id, image_id))
+            
+            persons_to_delete = cursor.fetchall()
+            logger.info(f"Found {len(persons_to_delete)} persons to delete who will have no remaining detections")
+            
+            # Add representative image and feature paths to files to delete
+            for person in persons_to_delete:
+                if isinstance(person, dict) or hasattr(person, 'keys'):
+                    # If result is a dict or dict-like
+                    person_id = person['person_id']
+                    if person.get('representative_image_path'):
+                        file_paths_to_delete.append(person['representative_image_path'])
+                    if person.get('representative_feature_path'):
+                        file_paths_to_delete.append(person['representative_feature_path'])
+                else:
+                    # If result is a tuple
+                    person_id = person[0]
+                    if person[1]:  # representative_image_path
+                        file_paths_to_delete.append(person[1])
+                    if person[2]:  # representative_feature_path
+                        file_paths_to_delete.append(person[2])
+                
+                logger.info(f"Person {person_id} will be deleted as they will have no remaining detections")
+            
+            # Delete related records first
+            # Delete from ClassTechniques
+            cursor.execute("DELETE FROM ClassTechniques WHERE class_image_id = ?", (image_id,))
+            
+            # Delete from Detections
+            cursor.execute("DELETE FROM Detections WHERE class_image_id = ?", (image_id,))
+            
+            # Delete persons who no longer have any detections
+            if persons_to_delete:
+                person_ids = []
+                for person in persons_to_delete:
+                    if isinstance(person, dict) or hasattr(person, 'keys'):
+                        person_ids.append(person['person_id'])
+                    else:
+                        person_ids.append(person[0])
+                
+                # Build the SQL query with placeholders for the IN clause
+                placeholders = ', '.join(['?' for _ in person_ids])
+                delete_query = f"DELETE FROM Persons WHERE person_id IN ({placeholders})"
+                
+                # Execute the delete query
+                cursor.execute(delete_query, person_ids)
+                logger.info(f"Deleted {len(person_ids)} persons with no remaining detections")
+            
+            # Finally delete the image record
+            cursor.execute("DELETE FROM ClassImages WHERE class_image_id = ?", (image_id,))
+            
+            # Commit the transaction
+            conn.commit()
+            
+            # Re-enable foreign key constraints
+            cursor.execute("PRAGMA foreign_keys = ON;")
+            
+            logger.info(f"Successfully deleted class image {image_id} from database")
+            
+        except Exception as db_error:
+            # Rollback in case of error
+            conn.rollback()
+            cursor.execute("PRAGMA foreign_keys = ON;")
+            logger.error(f"Database error while deleting class image {image_id}: {db_error}")
+            raise db_error
+        finally:
+            conn.close()
+        
+        # Delete the files from disk
+        deleted_files = []
+        for file_path in file_paths_to_delete:
+            try:
+                if file_path and os.path.exists(file_path):
+                    os.remove(file_path)
+                    deleted_files.append(file_path)
+                    logger.info(f"Deleted file: {file_path}")
+            except Exception as file_error:
+                logger.error(f"Error deleting file {file_path}: {file_error}")
+        
+        return jsonify({
+            "success": True,
+            "message": f"Class image {image_id} successfully deleted",
+            "deleted_files": deleted_files,
+            "deleted_persons": len(persons_to_delete) if persons_to_delete else 0
+        }), 200
+        
+    except Exception as e:
+        logger.error(f"Error deleting class image {image_id}: {e}")
+        logger.error(traceback.format_exc())
+        return jsonify({
+            "success": False,
+            "error": str(e)
+        }), 500
+
 @app.route('/api/persons', methods=['GET'])
 def get_persons():
     """Get all persons with pagination."""
@@ -839,73 +1105,56 @@ def get_persons():
             "error": str(e)
         }), 500
 
-@app.route('/api/persons/<person_id>', methods=['GET'])
-def get_person_details(person_id):
-    """Get details for a specific person including all detections."""
+@app.route('/api/persons/<person_id>/attendance_details', methods=['GET'])
+def get_person_attendance_details(person_id):
+    """Get detailed attendance information for a specific person."""
     try:
-        # Get person from database
-        person = get_person_by_id(person_id)
-        if not person:
+        # Get person info
+        person_info = get_person_by_id(person_id)
+        if not person_info:
+            logger.warning(f"Person {person_id} not found")
             return jsonify({
                 "success": False,
-                "error": f"Person with ID {person_id} not found"
+                "error": f"Person {person_id} not found"
             }), 404
         
-        # Get detections for this person
-        detections = get_detections_for_person(person_id)
+        # Get person's detections with additional information
+        attendance_details = get_detections_for_person(person_id)
         
-        # Filter out binary data from detections
-        filtered_detections = []
-        for detection in detections:
-            # Create a new dict without the binary feature_vector
-            filtered_detection = {}
-            for key, value in detection.items():
-                # Skip feature_vector and other binary fields
-                if key != 'feature_vector' and not isinstance(value, bytes):
-                    filtered_detection[key] = value
-            filtered_detections.append(filtered_detection)
-        
-        # Get class attendance history
-        conn = create_connection()
-        conn.row_factory = sqlite3.Row
-        cursor = conn.cursor()
-        cursor.execute("""
-            SELECT DISTINCT ci.class_image_id, ci.date_taken, ci.instagram_caption, ci.instagram_post_url
-            FROM Detections d
-            JOIN ClassImages ci ON d.class_image_id = ci.class_image_id
-            WHERE d.person_id = ?
-            ORDER BY ci.date_taken DESC
-        """, (person_id,))
-        
-        classes_rows = cursor.fetchall()
-        classes_attended = []
-        for row in classes_rows:
-            class_dict = {}
-            for key in row.keys():
-                class_dict[key] = row[key]
-            classes_attended.append(class_dict)
+        # Process attendance details to include face crop URLs
+        processed_attendance = []
+        for attendance in attendance_details:
+            attendance_data = dict(attendance)  # Create a copy to avoid modifying the original
             
-        conn.close()
+            # Remove binary fields that can't be serialized to JSON
+            if 'feature_vector' in attendance_data:
+                del attendance_data['feature_vector']
+            
+            # Add face crop URL if available
+            if attendance_data.get('face_crop_path'):
+                crop_path = attendance_data['face_crop_path']
+                # Just provide the path - the frontend will use data-url API to fetch the image
+                attendance_data['face_crop_url'] = crop_path
+            
+            # Add class image URL if available
+            class_image = get_class_image_by_id(attendance_data.get('class_image_id'))
+            if class_image and class_image.get('instagram_shortcode'):
+                attendance_data['instagram_shortcode'] = class_image['instagram_shortcode']
+            
+            processed_attendance.append(attendance_data)
         
-        # Group detections by class image
-        detection_by_class = {}
-        for detection in filtered_detections:
-            class_id = detection['class_image_id']
-            if class_id not in detection_by_class:
-                detection_by_class[class_id] = []
-            detection_by_class[class_id].append(detection)
+        # Include representative image URL if available
+        if person_info.get('representative_image_path'):
+            rep_image_path = person_info['representative_image_path']
+            person_info['image_url'] = f"/data/representative_persons/{os.path.basename(rep_image_path)}"
         
+        # Return person info and attendance details
         return jsonify({
-            "success": True,
-            "person": person,
-            "classes_attended": classes_attended,
-            "total_classes": len(classes_attended),
-            "detections": filtered_detections,
-            "total_detections": len(filtered_detections),
-            "detection_by_class": detection_by_class
-        }), 200
+            "person_info": person_info,
+            "attendance_details": processed_attendance
+        })
     except Exception as e:
-        logger.error(f"Error getting person details: {e}")
+        logger.error(f"Error getting person attendance details: {e}")
         logger.error(traceback.format_exc())
         return jsonify({
             "success": False,
@@ -915,50 +1164,104 @@ def get_person_details(person_id):
 @app.route('/api/detections/<int:detection_id>/reassign', methods=['POST'])
 def reassign_detection(detection_id):
     """Reassign a detection to a different person."""
+    logger.info(f"Reassigning detection_id={detection_id}")
+    
     try:
         data = request.json
-        if not data or 'person_id' not in data:
+        new_person_id = data.get('new_person_id')
+        original_person_id = data.get('original_person_id')
+        
+        if not new_person_id:
             return jsonify({
                 "success": False,
-                "error": "Missing person_id parameter"
+                "error": "No new_person_id provided"
             }), 400
         
-        new_person_id = data['person_id']
-        
-        # If this is a new person (not existing in database)
-        if data.get('is_new_person', False):
-            # Create new person
-            name = data.get('name', f"Person {detection_id}")
-            
-            conn = create_connection()
-            cursor = conn.cursor()
-            
-            # Generate a unique person ID
-            cursor.execute("INSERT INTO Persons (person_id, name, enrollment_date) VALUES (?, ?, ?)",
-                          (f"person_{int(time.time())}_{detection_id}", name, datetime.now().isoformat()))
-            
-            # Get the inserted person ID
-            new_person_id = f"person_{int(time.time())}_{detection_id}"
-            
-            conn.commit()
-            conn.close()
-        
-        # Update the detection assignment
-        success = update_detection_assignment(detection_id, new_person_id, is_verified=True)
-        
-        if success:
+        # Get current detection details
+        detection = get_detection_by_id(detection_id)
+        if not detection:
             return jsonify({
-                "success": True,
-                "detection_id": detection_id,
-                "new_person_id": new_person_id
-            }), 200
-        else:
+                "success": False,
+                "error": f"Detection with ID {detection_id} not found"
+            }), 404
+        
+        current_person_id = detection.get('person_id')
+        if not current_person_id:
+            return jsonify({
+                "success": False,
+                "error": "Detection is not currently assigned to any person"
+            }), 400
+        
+        # Verify the provided original_person_id matches the actual one
+        if original_person_id and original_person_id != current_person_id:
+            logger.warning(f"Provided original_person_id {original_person_id} doesn't match actual {current_person_id}")
+        
+        # Get the person we're reassigning from
+        original_person = get_person_by_id(current_person_id)
+        if not original_person:
+            return jsonify({
+                "success": False,
+                "error": f"Original person with ID {current_person_id} not found"
+            }), 404
+        
+        # Reassign the detection
+        update_success = update_detection_assignment(
+            detection_id=detection_id,
+            new_person_id=new_person_id,
+            is_verified=True,  # Mark as verified since this is a manual action
+            original_assigned_person_id_to_set=current_person_id
+        )
+        
+        if not update_success:
             return jsonify({
                 "success": False,
                 "error": "Failed to update detection assignment"
             }), 500
+        
+        # Check if the original person has any detections left
+        remaining_detections = get_detections_for_person(current_person_id)
+        
+        original_person_deleted = False
+        if not remaining_detections:
+            logger.info(f"Person {current_person_id} has no remaining detections, deleting...")
+            
+            # Delete representative files
+            rep_image_path = original_person.get('representative_image_path')
+            rep_feature_path = original_person.get('representative_feature_path')
+            
+            if rep_image_path and os.path.exists(rep_image_path):
+                try:
+                    os.remove(rep_image_path)
+                    logger.info(f"Deleted representative image: {rep_image_path}")
+                except Exception as e:
+                    logger.error(f"Error deleting representative image {rep_image_path}: {e}")
+            
+            if rep_feature_path and os.path.exists(rep_feature_path):
+                try:
+                    os.remove(rep_feature_path)
+                    logger.info(f"Deleted representative feature: {rep_feature_path}")
+                except Exception as e:
+                    logger.error(f"Error deleting representative feature {rep_feature_path}: {e}")
+            
+            # Delete the person
+            delete_success = delete_person(current_person_id)
+            if delete_success:
+                logger.info(f"Successfully deleted person {current_person_id}")
+                original_person_deleted = True
+            else:
+                logger.error(f"Failed to delete person {current_person_id}")
+        
+        # Return success response
+        return jsonify({
+            "success": True,
+            "detection_id": detection_id,
+            "new_person_id": new_person_id,
+            "original_person_id": current_person_id,
+            "original_person_deleted": original_person_deleted
+        }), 200
+        
     except Exception as e:
-        logger.error(f"Error reassigning detection: {e}")
+        logger.error(f"Error reassigning detection {detection_id}: {e}")
         logger.error(traceback.format_exc())
         return jsonify({
             "success": False,
@@ -1571,14 +1874,40 @@ def debug_image():
 def serve_image_as_data_url():
     """Serve an image as a data URL that can be embedded directly in HTML."""
     try:
-        path = request.args.get('path')
-        if not path:
-            # Try shortcode
-            shortcode = request.args.get('shortcode')
-            if shortcode:
-                path = os.path.join(UPLOAD_FOLDER, f"instagram_{shortcode}.jpg")
-            else:
-                return jsonify({"error": "No path or shortcode provided"}), 400
+        # Check for image_id first
+        image_id = request.args.get('id')
+        if image_id:
+            logger.info(f"Data URL request for image ID: {image_id}")
+            try:
+                # Get the image path from database
+                conn = create_connection()
+                cursor = conn.cursor()
+                cursor.execute(
+                    "SELECT filepath_processed as processed_image_path FROM ClassImages WHERE class_image_id = ?", 
+                    (image_id,)
+                )
+                result = cursor.fetchone()
+                conn.close()
+                
+                if result and result[0]:
+                    path = result[0]
+                    logger.info(f"Found path for image ID {image_id}: {path}")
+                else:
+                    logger.warning(f"No image found for ID {image_id}")
+                    return jsonify({"error": "Image not found"}), 404
+            except Exception as e:
+                logger.error(f"Database error looking up image ID {image_id}: {e}")
+                return jsonify({"error": f"Error looking up image: {str(e)}"}), 500
+        else:
+            # Try path or shortcode if no ID provided
+            path = request.args.get('path')
+            if not path:
+                # Try shortcode
+                shortcode = request.args.get('shortcode')
+                if shortcode:
+                    path = os.path.join(UPLOAD_FOLDER, f"instagram_{shortcode}.jpg")
+                else:
+                    return jsonify({"error": "No path, id, or shortcode provided"}), 400
         
         logger.info(f"Data URL request for path: {path}")
         
@@ -1596,7 +1925,6 @@ def serve_image_as_data_url():
             return jsonify({"error": "File not found"}), 404
         
         # Read the file and convert to base64
-        import base64
         with open(safe_path, 'rb') as img_file:
             img_data = img_file.read()
             
@@ -1622,6 +1950,36 @@ def serve_image_as_data_url():
         logger.error(f"Error serving image as data URL: {e}")
         logger.error(traceback.format_exc())
         return jsonify({"error": str(e)}), 500
+
+@app.route('/api/persons/<person_id>', methods=['GET'])
+def get_person_details(person_id):
+    """Get basic details for a specific person."""
+    try:
+        # Get person info
+        person_info = get_person_by_id(person_id)
+        if not person_info:
+            logger.warning(f"Person {person_id} not found")
+            return jsonify({
+                "success": False,
+                "error": f"Person {person_id} not found"
+            }), 404
+        
+        # Include representative image URL if available
+        if person_info.get('representative_image_path'):
+            rep_image_path = person_info['representative_image_path']
+            person_info['image_url'] = f"/data/representative_persons/{os.path.basename(rep_image_path)}"
+        
+        # Return person info
+        return jsonify({
+            "success": True,
+            "person_info": person_info
+        })
+    except Exception as e:
+        logger.error(f"Error getting person details: {e}")
+        return jsonify({
+            "success": False,
+            "error": str(e)
+        }), 500
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5001, debug=True)

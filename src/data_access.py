@@ -35,7 +35,8 @@ def get_db_connection():
 def add_person(person_id: str, name: Optional[str], enrollment_date: str,
                representative_image_path: Optional[str] = None,
                representative_feature_path: Optional[str] = None,
-               notes: Optional[str] = None) -> Optional[str]:
+               notes: Optional[str] = None,
+               quality_score: Optional[float] = None) -> Optional[str]:
     """Add a new person to the database."""
     try:
         conn = get_db_connection()
@@ -46,14 +47,14 @@ def add_person(person_id: str, name: Optional[str], enrollment_date: str,
             person_id, name, enrollment_date,
             representative_image_path,
             representative_feature_path,
-            notes, last_updated
+            notes, quality_score, last_updated
         )
-        VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+        VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
         """, (
             person_id, name, enrollment_date,
             representative_image_path,
             representative_feature_path,
-            notes
+            notes, quality_score
         ))
         
         conn.commit()
@@ -324,13 +325,8 @@ def get_detection_by_id(detection_id: int):
         detection_row = cursor.fetchone()
         
         if detection_row:
-            # Filter out binary data
-            filtered_detection = {}
-            for key, value in detection_row.items():
-                # Skip feature_vector and other binary fields
-                if key != 'feature_vector' and not isinstance(value, bytes):
-                    filtered_detection[key] = value
-            return filtered_detection
+            # Return the full detection data, including binary fields
+            return detection_row
         return None
     except sqlite3.Error as e:
         logger.error(f"Database error getting detection {detection_id}: {e}")
